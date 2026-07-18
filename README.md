@@ -16,7 +16,7 @@ explains resistance that already exists and must never design or modify organism
 - **[PLAN.md](PLAN.md)** — the full technical plan.
 - **[CLAUDE.md](CLAUDE.md)** — rules every contributor (and their AI agent) must follow.
 - **[docs/DATA_SPEC.md](docs/DATA_SPEC.md)** — the frozen data/interface contracts.
-- **Your task list:** `docs/subplans/PERSON_{A,B,C,D}_*.md`.
+- **Your task list:** PLAN.md → "Parallel execution — 4 workstreams", the section for your person (A/B/C/D).
 
 ## The pipeline
 ```

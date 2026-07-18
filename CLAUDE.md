@@ -10,9 +10,8 @@ takes a reconstructed **Staphylococcus aureus** genome (FASTA) and predicts, per
 antibiotic, **likely to fail / likely to work / no-call**, with a **calibrated confidence
 score**, an **evidence category**, and the **supporting genes/mutations**.
 
-- Full plan: [PLAN.md](PLAN.md)
+- Full plan, including your personal task list: [PLAN.md](PLAN.md)
 - Data/interface contracts: [docs/DATA_SPEC.md](docs/DATA_SPEC.md)
-- Your personal task list: `docs/subplans/PERSON_{A,B,C,D}_*.md`
 
 ## Non-negotiable scope & safety (biosecurity)
 This project is **strictly defensive**. It predicts and explains resistance that
@@ -38,10 +37,29 @@ professional makes the decision."*
 6. **Honest generalization.** Report metrics broken down by genetic group, including
    groups unseen in training. Expect and report the performance drop.
 
-## The self-questioning workflow (run it at every integration wave)
-Before calling anything "done", answer these in `docs/DECISIONS.md` with evidence:
-leakage? · calibration? · absence-of-markers honesty? · causation overclaim? ·
-generalization on unseen groups? · forcing yes/no vs no-call? · scope drift?
+## Adversarial by default — every agent, every non-trivial decision
+This is not optional and it is not limited to integration waves. Every agent working in
+this repo must treat its own decisions as guilty until proven innocent:
+- Before committing to a non-trivial choice — a threshold, a modeling or split decision,
+  a schema change, a claim written into the UI/docs, a "this is fine to skip" call —
+  state the decision **and the concrete reason for it**, then actively argue against
+  your own choice: what's the strongest case this is wrong? Does it survive that case?
+- Never accept your first answer as final. If you cannot articulate a real argument
+  against a decision, you have not scrutinized it enough — go find the argument.
+- Apply this adversarially to the rigor rules below, not as a checklist to tick: don't
+  ask "did I split by cluster", ask "how would a skeptical judge try to prove this leaks
+  anyway, and did I actually close that off?"
+- This applies to every teammate's agent, not just the one that "owns" a rigor rule —
+  if you notice another module's output looks too good, too clean, or unverified,
+  question it out loud rather than assuming the owner already checked.
+- Log non-obvious decisions and the adversarial case you considered in
+  `docs/DECISIONS.md` **as you make them**, not only when a module is declared "done".
+
+## The self-questioning workflow (the mandatory checklist, run it at every integration wave)
+In addition to the standing adversarial requirement above, before calling anything
+"done" answer these in `docs/DECISIONS.md` with evidence: leakage? · calibration? ·
+absence-of-markers honesty? · causation overclaim? · generalization on unseen groups? ·
+forcing yes/no vs no-call? · scope drift?
 
 ## Ownership map — stay in your lane (this prevents merge conflicts)
 | You are | You own (edit freely) |
@@ -68,9 +86,11 @@ when the real file lands (same path, same schema).
   manifests/checksums, not genomes.
 
 ## Environment
-`conda env create -f environment.yml && conda activate genome-firewall`. AMRFinderPlus is
-installed into a separate `amr` conda env (or Docker `ncbi/amr`) — see
-`docs/subplans/PERSON_B_features.md`. Apple Silicon: PyTorch uses **MPS** for ESM-2.
+`conda env create -f environment.yml && conda activate genome-firewall`. AMRFinderPlus
+(https://github.com/ncbi/amr) is installed with `make amr-setup`
+(`scripts/setup_amrfinder.sh`), which sets up a separate `amr` conda env (falls back to
+Docker `ncbi/amr` if conda is unavailable) — see the Person B section in
+[PLAN.md](PLAN.md). Apple Silicon: PyTorch uses **MPS** for ESM-2.
 
 ## Definition of done for the whole project
 `make all` runs download → annotate → featurize → split → train → calibrate → evaluate

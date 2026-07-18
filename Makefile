@@ -1,11 +1,14 @@
 # Genome Firewall — reproducible pipeline.
 # Owner: Person D (end-to-end wiring). Targets call into src/genome_firewall/*.
-.PHONY: all synth acquire annotate featurize split train calibrate evaluate app clean
+.PHONY: all synth amr-setup acquire annotate featurize split train calibrate evaluate app clean
 
 all: acquire annotate featurize split train calibrate evaluate   ## full pipeline
 
 synth:      ## generate schema-valid synthetic data so anyone can build immediately
 	python -m genome_firewall._synth
+
+amr-setup:  ## Person B: install NCBI AMRFinderPlus (conda 'amr' env, falls back to docker ncbi/amr)
+	bash scripts/setup_amrfinder.sh
 
 acquire:    ## Person A: BV-BRC genomes + lab AST -> data/processed/labels.csv
 	python -m genome_firewall.acquire

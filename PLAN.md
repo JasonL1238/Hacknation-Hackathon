@@ -100,8 +100,7 @@ genome-firewall/
 ├── app/streamlit_app.py       # Module 03 demo
 ├── db/drugs_saureus.csv       # curated drug DB: name, class, target gene(s), markers
 └── docs/
-    ├── DATA_SPEC.md  MODEL_CARD.md  DECISIONS.md  RISKS.md  RESPONSIBLE_AI.md
-    └── subplans/  PERSON_A_data.md  PERSON_B_features.md  PERSON_C_model.md  PERSON_D_demo.md
+    └── DATA_SPEC.md  MODEL_CARD.md  DECISIONS.md  RISKS.md  RESPONSIBLE_AI.md
 ```
 
 ---
@@ -273,15 +272,204 @@ unseen in training). Baseline vs DL deltas side by side.
 ## Parallel execution — 4 workstreams (one per person)
 
 All four start at t=0 against the frozen contracts + synthetic data. Ownership is
-**disjoint by file** so git conflicts are near-zero. Full per-person detail in
-`docs/subplans/`.
+**disjoint by file** so git conflicts are near-zero. Each person reads
+[CLAUDE.md](CLAUDE.md) and [docs/DATA_SPEC.md](docs/DATA_SPEC.md) first, then works on
+their own branch (`feat/data`, `feat/features`, `feat/model`, `feat/demo`) and merges to
+`main` frequently.
 
-| Person | Focus | Owns | Never blocked because… |
-|---|---|---|---|
-| **A** | Data & Labels & Drug DB | `acquire.py`, `labels.py`, `data/raw/`, `db/drugs_saureus.csv` | fully independent from t=0 |
-| **B** | Annotation & Features | `annotate.py`, `featurize.py`, `data/interim/` | devs on public FASTAs, swaps in A's genomes later |
-| **C** | Modeling (rigor core) | `split.py`, `model_baseline.py`, `calibrate.py`, `nocall.py`, `target_gate.py`, `evaluate.py`, `embed_esm.py`, `report.py` | trains on synthetic features until A/B deliver |
-| **D** | Demo & Responsible-AI + glue | `app/streamlit_app.py`, `docs/`, optional OpenAI, `Makefile` | renders mock reports until C delivers |
+### Person A — Data, Labels & Drug Database
+
+> Branch `feat/data`. **Fully independent from t=0** — nobody blocks you, and you block
+> Person C's *real* run (they use synthetic labels until you deliver).
+
+**You own (edit freely):** `src/genome_firewall/acquire.py`, `labels.py`; `data/raw/`
+(gitignored — commit the manifest, not the genomes); `db/drugs_saureus.csv`.
+
+**Deliverables:**
+1. `data/processed/labels.csv` — schema in DATA_SPEC §3. Lab-measured AST only.
+2. Quality-filtered genome FASTAs in `data/raw/` + `data/raw/manifest.csv` (genome_id,
+   accession, source, checksum, quality flags).
+3. `db/drugs_saureus.csv` — schema in DATA_SPEC §5.
+
+**Tasks:**
+1. Pull from BV-BRC (`https://www.bv-brc.org/api/`, via `requests` RQL; `p3-*` CLI as
+   fallback): query `genome_amr` filtered to *Staphylococcus aureus*, keep rows with a
+   **measured** `laboratory_typing_method` (MIC/disk) and a real `resistant_phenotype`.
+   **Exclude model-predicted phenotype fields** (challenge rule — critical). Join to
+   `genome` on `genome_id`; keep good-quality genomes (genome_status / genome_quality /
+   contig count). Download contigs (FASTA).
+2. Pick the antibiotics — rank by count of clean R/S labels; choose the **4–5**
+   best-covered with strong genotype links. Likely shortlist: erythromycin, clindamycin,
+   ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin (mecA showcase). Record
+   the choice + counts in `docs/DECISIONS.md`.
+3. Labels rule (`labels.py`): SIR → `R`/`S`; default **I → R** (conservative), but
+   document and note sensitivity. If only MIC, apply CLSI/EUCAST breakpoints (documented
+   table). One label per (genome_id, antibiotic).
+4. Drug DB (`db/drugs_saureus.csv`): for each chosen drug fill class, `target_genes`
+   (molecular target for the gate), `known_markers`, standardized name.
+
+**Fallbacks:** BV-BRC slow/flaky → use precomputed BV-BRC AMR tables, NCBI Pathogen
+Detection, or a documented Kaggle mirror (record license/version/source). Never use
+unverified copies without provenance.
+
+**Definition of done:** `labels.csv`, `manifest.csv`, FASTAs, and `drugs_saureus.csv`
+exist and validate against DATA_SPEC; antibiotic choice + counts logged in
+DECISIONS.md; Person C can drop your `labels.csv` in place of the synthetic one with no
+code change.
+
+**Self-questioning before done:** Are any labels model-predicted rather than
+lab-measured? Are quality filters documented? Is the I→R decision recorded with its
+rationale?
+
+### Person B — Annotation & Feature Pipeline (Module 01)
+
+> Branch `feat/features`. **Never blocked** — dev on a handful of public NCBI
+> *S. aureus* FASTAs immediately, swap to Person A's real genomes at integration.
+
+**You own (edit freely):** `src/genome_firewall/annotate.py`, `featurize.py`;
+`data/interim/amrfinder/` (per-genome TSVs — gitignored).
+
+**Deliverables:**
+1. `data/processed/features.parquet` — DATA_SPEC §1 (binary presence/absence matrix).
+2. `data/processed/feature_spec.json` — DATA_SPEC §2 (frozen, ordered column list).
+
+**Tasks:**
+1. Install AMRFinderPlus (https://github.com/ncbi/amr): run `make amr-setup`
+   (`scripts/setup_amrfinder.sh` — installs into a dedicated conda env `amr` isolated
+   from `environment.yml`, downloads the database, falls back to the `ncbi/amr` Docker
+   image if conda isn't available). Record the DB version in `feature_spec.json`.
+2. Batch runner (`annotate.py`): for each FASTA run
+   `amrfinder -n contigs.fna --organism Staphylococcus_aureus --plus -o out.tsv`. The
+   `--organism` flag is **mandatory** — it unlocks S. aureus point mutations (gyrA,
+   grlA/parC, rpoB) and blaZ handling. Run in parallel; cache TSVs (skip if present) so
+   reruns are cheap.
+3. Featurize (`featurize.py`): parse each TSV → one row. Feature columns = **union
+   across all genomes** of (a) gene symbols and (b) point mutations named as
+   `gene_mutation` (e.g. `gyrA_S84L`). Absent = 0. Write `features.parquet` +
+   `feature_spec.json` with a version hash of the sorted column list.
+4. Inference helper: expose a function that, given a single FASTA, produces a feature
+   vector **in `feature_spec.json` column order** (the Streamlit app will call this
+   path).
+
+**Fallbacks:** AMRFinderPlus install/runtime trouble → Docker image; or, to unblock
+modeling, BV-BRC / NCBI **precomputed** AMRFinderPlus results parsed into the same
+matrix schema.
+
+**Definition of done:** `features.parquet` + `feature_spec.json` validate against
+DATA_SPEC; the same code path turns one uploaded FASTA into a spec-ordered vector;
+Person C can drop your matrix in place of the synthetic one with no code change.
+
+**Self-questioning before done:** Is `--organism Staphylococcus_aureus` set everywhere?
+Is the column order frozen and versioned? Does single-genome inference produce a vector
+identical in shape/order to the training matrix?
+
+### Person C — Modeling, Split, Calibration, Evaluation, DL stretch (Module 02)
+
+> Branch `feat/model`. **Never blocked** — train on the **synthetic**
+> `features.parquet` + `labels.csv` from `_synth.py` until A/B deliver, then swap to
+> real (same paths). This workstream is where the hackathon is won: ML rigor &
+> calibration is the judged priority.
+
+**You own (edit freely):** `src/genome_firewall/split.py`, `model_baseline.py`,
+`calibrate.py`, `nocall.py`, `target_gate.py`, `evaluate.py`, `embed_esm.py`,
+`report.py`.
+
+**Deliverables:**
+1. `data/processed/splits.json` — DATA_SPEC §4 (grouped, no cluster spans splits).
+2. Trained + calibrated per-antibiotic models (pickled under `data/processed/models/`).
+3. Report objects via `report.py` — DATA_SPEC §6.
+4. `data/processed/metrics.json` + reliability/PR PNGs in `reports/` — DATA_SPEC §7.
+
+**Tasks (in dependency order, but all doable on synthetic first):**
+1. De-dup + grouped split (`split.py`): Mash (or skani ANI) sketches → de-dup
+   near-identical genomes (~Mash <0.0002 / ANI ≥99.98%), report count collapsed →
+   single-linkage cluster at a coarser threshold (tune ~0.001–0.005; cross-check MLST
+   clonal complexes) → assign **whole clusters** to train/cal/test. **Assert no cluster
+   spans splits.** Hold out some clusters entirely unseen in training. Justify threshold
+   in `docs/DECISIONS.md`.
+2. Baseline (`model_baseline.py`): one L2-regularized `LogisticRegression`
+   (`class_weight="balanced"`) per antibiotic on the presence/absence matrix.
+3. Calibration (`calibrate.py`): isotonic (or Platt) fit **on the `cal` split only**;
+   reliability diagram + Brier on the **`test` split**.
+4. Target gate (`target_gate.py`): read `db/drugs_saureus.csv`; never allow "work" from
+   marker-absence alone — require target present; else resistance/no-call.
+5. No-call (`nocall.py`): trigger on (a) calibrated p in ~[0.4,0.6], (b) OOD (distance
+   to nearest training cluster, or unseen AMR genes/mutations), (c) target gate. Report
+   no-call rate + accuracy-on-called.
+6. Evidence category (`report.py`): (i) known catalog gene/mutation drove the call, (ii)
+   statistical-only (coefficient/SHAP — label as *not proven causal*), (iii) no signal.
+   Build the report object per DATA_SPEC §6.
+7. Metrics (`evaluate.py`): balanced accuracy, recall_R, recall_S, F1, AUROC, PR-AUC per
+   drug, Brier, no-call rate, accuracy-on-called, **per-genetic-group** breakdown incl.
+   unseen groups. Write `metrics.json` + PNGs.
+8. DL stretch (`embed_esm.py`): ESM-2 (`facebook/esm2_t12_35M`/`t30_150M`) on
+   AMRFinder-flagged proteins, mean-pool per genome (MPS), concat/replace features,
+   retrain on the **same splits + same calibration**, report deltas honestly. Not
+   beating the baseline is a valid, honest result.
+
+**Definition of done:** Splits provably leak-free; calibration curve tracks the diagonal
+on held-out; `report.py` emits DATA_SPEC-valid objects; `metrics.json` has per-group
+breakdown; DL-vs-baseline deltas computed on identical splits.
+
+**Self-questioning before done:** Could any near-identical genome span train/test? Is
+calibration fit only on `cal`? Is any "work" verdict resting on marker-absence without
+target-present? Is any SHAP/coefficient presented as biological cause? Do we no-call
+enough, or forcing yes/no?
+
+### Person D — Demo, Responsible-AI & Integration/Glue (Module 03)
+
+> Branch `feat/demo`. **Never blocked** — render the **mock** report object from
+> `_synth.py` until Person C delivers real ones (same schema, DATA_SPEC §6). You are also
+> the **integration owner**: keep `make all` green as synthetic files are replaced by
+> real.
+
+**You own (edit freely):** `app/streamlit_app.py`; `docs/` (MODEL_CARD.md,
+RESPONSIBLE_AI.md, DECISIONS.md, RISKS.md) — **except** `docs/DATA_SPEC.md` (shared
+seam); `Makefile` end-to-end wiring; optional `src/genome_firewall/llm_summary.py`
+(flag-gated OpenAI layer).
+
+**Deliverables:**
+1. Working Streamlit demo (`streamlit run app/streamlit_app.py`).
+2. Responsible-AI docs (MODEL_CARD.md, RESPONSIBLE_AI.md) covering each Responsibility
+   Requirement from the brief.
+3. Green `make all` end-to-end.
+
+**Tasks:**
+1. Report cards (consume DATA_SPEC §6 objects): per antibiotic show verdict
+   (fail/work/no-call, color-coded), **calibrated confidence** bar, **evidence
+   category** (i/ii/iii with honest wording — statistical ≠ causal), and **supporting
+   genes/mutations**.
+2. Performance panel (consume `metrics.json` + PNGs): balanced accuracy, per-class
+   recall, F1, AUROC, PR-AUC per drug; **reliability plot**; **no-call rate**;
+   **per-genetic-group** generalization.
+3. Mandatory banner on every result: *"Research prototype — confirm every result with
+   standard laboratory testing. Decision support only; a trained professional decides."*
+   Plus a **defensive-use statement** and an explicit note that the tool never designs
+   or modifies organisms.
+4. Live upload path: FASTA upload → call Person B's single-genome feature builder →
+   Person C's model + report builder → render. Cache models + AMRFinder DB; ship 2–3
+   precomputed demo genomes (incl. a known **mecA+ MRSA**) for instant results.
+5. Responsible-AI docs: write MODEL_CARD.md (species/antibiotics covered & NOT covered,
+   metrics, calibration, no-call policy, intended use, limitations) and
+   RESPONSIBLE_AI.md mapping each brief requirement (defensive-by-construction, honest
+   generalization, calibrated confidence + no-call, honest explanations, human
+   oversight) to how we address it on held-out data.
+6. Own the self-questioning cadence: at each integration wave, run the 7-question
+   checklist (see CLAUDE.md) and log answers + evidence in DECISIONS.md; track open
+   items in RISKS.md.
+7. Optional OpenAI layer (off by default, behind a flag): turn the *structured* report
+   into a plain-language clinician summary **strictly grounded on the structured
+   evidence** — no invented biology, always defers to lab confirmation. Skip if
+   time-poor.
+
+**Definition of done:** App renders calibrated per-antibiotic reports with evidence
+categories + mandatory banner on both precomputed and uploaded genomes; performance
+panel shows held-out + per-group metrics with a reliability plot; `make all` runs clean
+end-to-end; responsible-AI docs complete.
+
+**Self-questioning before done:** Is the lab-confirmation banner impossible to miss?
+Does any card imply causation from a statistical feature? Is the no-call state shown as
+a legitimate, positive outcome? Does anything in the UI drift toward organism design?
 
 ### Integration waves (how the seams connect)
 1. **t=0:** foundation on `main`; everyone forks; all build against synthetic/mock.
