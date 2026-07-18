@@ -4,14 +4,16 @@ species:
   amrfinder_organism: Staphylococcus_aureus   # --organism flag (mandatory)
   taxon_id: 1280
 
-# Filled in after ranking BV-BRC label coverage (4-5 drugs).
-antibiotics: []
-  # - oxacillin
-  # - erythromycin
-  # - clindamycin
-  # - ciprofloxacin
-  # - gentamicin
-  # - tetracycline
+# Ranked by clean BV-BRC label coverage (see acquire.select_antibiotics + DECISIONS.md).
+# cefoxitin, not oxacillin, is the mecA-mediated-resistance entry: same underlying
+# mechanism, cefoxitin has better coverage and is the current CLSI-preferred surrogate.
+antibiotics:
+  - ciprofloxacin
+  - gentamicin
+  - tetracycline
+  - erythromycin
+  - cefoxitin
+  - clindamycin
 
 labels:
   intermediate_rule: R          # map "I" -> R (conservative). Documented in DECISIONS.md.

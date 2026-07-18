@@ -1,0 +1,7 @@
+antibiotic,drug_class,target_genes,known_markers,standardized_name
+ciprofloxacin,fluoroquinolone,gyrA;gyrB;parC;parE,gyrA_S84L;gyrA_E88K;gyrA_S85P;parC_S80F;parC_S80Y;parC_E84K;norA;mepA,Ciprofloxacin
+gentamicin,aminoglycoside,rpsL;rrs,aac(6')-Ie/aph(2'')-Ia;aadD1;aph(3')-III;ant(4')-Ia;ant(6)-Ia;ant(9)-Ia,Gentamicin
+tetracycline,tetracycline,rpsJ,tet(K);tet(L);tet(M);tet(O);tet(38);mepA,Tetracycline
+erythromycin,macrolide,rplV;rplD,erm(A);erm(B);erm(C);erm(T);msr(A);mph(C);lnu(A),Erythromycin
+cefoxitin,beta-lactam (cephamycin; mecA surrogate),pbpA;pbpB;pbpC;pbpD,mecA;mecC;mecR1;blaZ;blaR1;blaI,Cefoxitin
+clindamycin,lincosamide,rplV;rplD,erm(A);erm(B);erm(C);erm(T);lnu(A);lnu(B);vga(A);vga(B),Clindamycin
