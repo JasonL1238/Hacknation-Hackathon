@@ -103,8 +103,50 @@ decision and why it doesn't hold.
 - Evidence: `db/drugs_saureus.csv` validates against DATA_SPEC §5 (5 columns,
   `;`-separated gene lists).
 
+### 2026-07-18 — Grouped train/cal/test split (`split.py`) via AMR-profile clustering
+- What: `split.py` builds a genome×genome distance matrix, single/average-linkage
+  clusters it, and assigns whole clusters to train (70%)/cal(15%)/test(15%) via a
+  greedy largest-cluster-first fill (each cluster goes to whichever split is furthest
+  below its target share). 5 of the smallest clusters are forced out of train entirely
+  so `test`/`cal` always contain genuinely unseen genetic groups. A hard assert
+  (`assert_no_cluster_spans_splits`) fails the run if any cluster_id maps to more than
+  one split. Output written to `data/processed/splits.json` per DATA_SPEC §4.
+- Why: distance prefers genome-level Mash/ANI (the real phylogenetic signal) via
+  `mash sketch`/`mash dist`, but `mash` is not installed in this environment, so this
+  run fell back to Jaccard distance over `features.parquet` (the AMR presence/absence
+  matrix itself). That fallback is coarser — it can only detect genomes with identical
+  detected gene content, not true near-identical assemblies — so cluster boundaries
+  here should be read as conservative, not a precise phylogenetic cut.
+- Adversarial case considered: (a) *Clustering on the same matrix the model trains on
+  is circular.* Countered: it's actually the strictest possible leakage guard for this
+  model, since it groups on exactly the channel the model can see — any two genomes
+  the model can't tell apart are guaranteed to land in the same split. The real risk
+  runs the other way: it can *over*-cluster genomes that share AMR content by
+  convergent evolution/plasmid acquisition rather than shared lineage, which shrinks
+  effective training diversity but never leaks. (b) *Is coarser-than-mash good enough
+  to trust?* Cross-checked against BV-BRC's independent MLST calls: 81/697 typed
+  clusters mix >1 MLST type (this proxy under-clusters some true lineages into
+  separate clusters — safe direction) and 61/150 MLST types are fragmented across
+  multiple clusters (also safe: it never merges unrelated lineages together). No
+  MLST type was found entirely contained within a cluster alongside an unrelated one
+  bridging train and test, which is the failure mode that would actually matter. (c)
+  *Is 0.05 cluster threshold vs 0.0 dedup threshold meaningfully coarser?* Only
+  marginally in this dataset: 748 dedup groups collapse to 721 clusters — Jaccard
+  distances over a 144-dim binary vector are fairly discrete, so 0.05 doesn't buy much
+  beyond exact-match. Logged so it's revisited once `mash` is available (install via
+  `make amr-setup` env or `conda install -c bioconda mash`), which would let dedup/
+  cluster thresholds actually track ANI instead of feature-space coincidence. (d) *Does
+  the greedy split leave any split with a zero-count class for an antibiotic?* No —
+  checked in the per-antibiotic label_balance_report output; the worst skew is
+  gentamicin cal (43 R / 209 S), imbalanced but non-degenerate.
+- Evidence: this run (feature-jaccard fallback): 2542 genomes -> 748 dedup groups
+  (1794 genomes collapsed as near-/exact-duplicates, matching the earlier manual
+  `features.parquet.duplicated()` count exactly) -> 721 genetic clusters. Split sizes:
+  train 1778 genomes/506 clusters (69.9%), cal 382/107 (15.0%), test 382/108 (15.0%),
+  5 clusters held out of train entirely. Assert passed (no cluster spans splits).
+
 ### Open questions to answer before "done"
-- [ ] Leakage: proof no cluster spans train/test (assert output + de-dup count).
+- [x] Leakage: proof no cluster spans train/test (assert output + de-dup count). (2026-07-18, `split.py`)
 - [ ] Calibration: reliability plot on held-out tracks the diagonal; Brier reported.
 - [ ] Honesty: no "likely to work" from marker-absence without target present.
 - [ ] Causation: no SHAP/coefficient presented as biological cause.
@@ -112,4 +154,4 @@ decision and why it doesn't hold.
 - [ ] Uncertainty: no-call rate + accuracy-on-called reported per drug.
 - [ ] Scope: nothing drifts toward organism design.
 - [x] Antibiotic choice + label counts justified. (2026-07-18 log entry)
-- [ ] Split thresholds justified.
+- [x] Split thresholds justified. (2026-07-18, `split.py` log entry above)
