@@ -1,0 +1,7 @@
+antibiotic,drug_class,target_genes,known_markers,standardized_name
+oxacillin,beta-lactam,pbp2,mecA;mecC,Oxacillin
+erythromycin,macrolide,rplD,ermA;ermB;ermC,Erythromycin
+clindamycin,lincosamide,rplD,ermA;ermB;ermC,Clindamycin
+ciprofloxacin,fluoroquinolone,gyrA;grlA,gyrA_S84L;grlA_S80F,Ciprofloxacin
+gentamicin,aminoglycoside,rrs,aac6_aph2,Gentamicin
+tetracycline,tetracycline,rpsJ,tetK;tetM,Tetracycline

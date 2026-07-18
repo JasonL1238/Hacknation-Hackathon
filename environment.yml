@@ -1,0 +1,24 @@
+name: genome-firewall
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scikit-learn
+  - scipy
+  - pyarrow          # parquet
+  - matplotlib
+  - pyyaml
+  - requests
+  - biopython
+  - streamlit
+  - mash             # genome sketching for de-dup + grouped split (bioconda)
+  # AMRFinderPlus lives in a SEPARATE env (see docs/subplans/PERSON_B_features.md):
+  #   conda create -n amr -c conda-forge -c bioconda ncbi-amrfinderplus && amrfinder -u
+  - pip:
+      - torch            # MPS on Apple Silicon; for the ESM-2 DL stretch
+      - fair-esm         # ESM-2 protein embeddings
+      - openai           # optional, flag-gated clinician-summary layer

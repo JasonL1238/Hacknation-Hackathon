@@ -1,0 +1,89 @@
+{
+  "genome_id": "SYN.0013",
+  "report": [
+    {
+      "antibiotic": "oxacillin",
+      "verdict": "fail",
+      "confidence": 0.9,
+      "evidence_category": "i",
+      "supporting_features": [
+        "mecC"
+      ],
+      "target_present": true,
+      "reasons": [
+        "mecC detected (known oxacillin resistance determinant)"
+      ]
+    },
+    {
+      "antibiotic": "erythromycin",
+      "verdict": "work",
+      "confidence": 0.75,
+      "evidence_category": "i",
+      "supporting_features": [
+        "ermA",
+        "ermB",
+        "ermC"
+      ],
+      "target_present": true,
+      "reasons": [
+        "ermA detected (known erythromycin resistance determinant)",
+        "ermB detected (known erythromycin resistance determinant)",
+        "ermC detected (known erythromycin resistance determinant)"
+      ]
+    },
+    {
+      "antibiotic": "clindamycin",
+      "verdict": "fail",
+      "confidence": 0.9,
+      "evidence_category": "i",
+      "supporting_features": [
+        "ermA",
+        "ermB",
+        "ermC"
+      ],
+      "target_present": true,
+      "reasons": [
+        "ermA detected (known clindamycin resistance determinant)",
+        "ermB detected (known clindamycin resistance determinant)",
+        "ermC detected (known clindamycin resistance determinant)"
+      ]
+    },
+    {
+      "antibiotic": "ciprofloxacin",
+      "verdict": "work",
+      "confidence": 0.75,
+      "evidence_category": "i",
+      "supporting_features": [
+        "gyrA_S84L"
+      ],
+      "target_present": true,
+      "reasons": [
+        "gyrA_S84L detected (known ciprofloxacin resistance determinant)"
+      ]
+    },
+    {
+      "antibiotic": "gentamicin",
+      "verdict": "fail",
+      "confidence": 0.9,
+      "evidence_category": "i",
+      "supporting_features": [
+        "aac6_aph2"
+      ],
+      "target_present": true,
+      "reasons": [
+        "aac6_aph2 detected (known gentamicin resistance determinant)"
+      ]
+    },
+    {
+      "antibiotic": "tetracycline",
+      "verdict": "work",
+      "confidence": 0.6,
+      "evidence_category": "ii",
+      "supporting_features": [],
+      "target_present": true,
+      "reasons": [
+        "no known resistance marker detected"
+      ]
+    }
+  ]
+}

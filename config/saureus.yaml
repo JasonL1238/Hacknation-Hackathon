@@ -1,0 +1,38 @@
+# Shared config seam — do NOT change without a team sync (see CLAUDE.md).
+species:
+  name: Staphylococcus aureus
+  amrfinder_organism: Staphylococcus_aureus   # --organism flag (mandatory)
+  taxon_id: 1280
+
+# Filled in by Person A after ranking BV-BRC label coverage (4-5 drugs).
+antibiotics: []
+  # - oxacillin
+  # - erythromycin
+  # - clindamycin
+  # - ciprofloxacin
+  # - gentamicin
+  # - tetracycline
+
+labels:
+  intermediate_rule: R          # map "I" -> R (conservative). Documented in DECISIONS.md.
+
+split:
+  dedup_mash_distance: 0.0002   # collapse near-identical genomes
+  cluster_mash_distance: 0.003  # single-linkage grouping threshold (tune + justify)
+  fractions: {train: 0.6, cal: 0.15, test: 0.25}
+  hold_out_unseen_clusters: true
+
+nocall:
+  prob_band: [0.4, 0.6]         # calibrated p in this band -> no-call
+  ood_enabled: true
+
+paths:
+  raw: data/raw
+  interim: data/interim/amrfinder
+  processed: data/processed
+  drugs_db: db/drugs_saureus.csv
+  reports: reports
+
+openai:
+  enabled: false                # flag-gated clinician summary (optional)
+  model: gpt-4o-mini
