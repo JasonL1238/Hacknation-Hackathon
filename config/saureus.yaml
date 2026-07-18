@@ -4,7 +4,7 @@ species:
   amrfinder_organism: Staphylococcus_aureus   # --organism flag (mandatory)
   taxon_id: 1280
 
-# Filled in by Person A after ranking BV-BRC label coverage (4-5 drugs).
+# Filled in after ranking BV-BRC label coverage (4-5 drugs).
 antibiotics: []
   # - oxacillin
   # - erythromycin

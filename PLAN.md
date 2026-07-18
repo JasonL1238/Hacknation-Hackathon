@@ -15,7 +15,9 @@ Decisions locked with the user:
   AMRFinderPlus's `--organism Staphylococcus_aureus` mode.
 - **Data:** we source it ourselves from **BV-BRC** (genomes + lab-measured AST). We do
   NOT have the organizer dataset; if one appears later it drops into the same pipeline.
-- **Time/team:** 24–48h, team of 4.
+- **Time/team:** 24–48h. No fixed per-person ownership — anyone can work on any part of
+  the pipeline; work roughly follows the sequential build order below since later stages
+  genuinely depend on earlier ones' real output.
 - **Win priority:** ML rigor & calibration is the primary judged axis. The Streamlit
   demo and responsible-AI framing are mandatory deliverables we execute well but do not
   over-invest in. Multimodal/OpenAI is optional polish, gated behind a flag.
@@ -26,7 +28,7 @@ Decisions locked with the user:
 
 Environment already verified on the build machine: conda 25.7, Docker 27.4, Python 3.13,
 scikit-learn 1.7, pandas 2.3, Streamlit 1.56, PyTorch 2.8 with **MPS (Apple GPU)**.
-AMRFinderPlus is not installed but is one `conda`/`docker` command away.
+AMRFinderPlus installs with `make amr-setup` (see Module 01 below).
 
 ---
 
@@ -51,8 +53,8 @@ evidence:
 7. **Scope check** — "Does anything drift toward designing/modifying an organism?"
    (must be strictly predict-explain-existing-resistance).
 
-Cadence: at the end of each integration wave, one team member plays "red team" and runs
-this checklist against the current state; findings become the next tasks. Keep a running
+Cadence: at the end of each milestone, someone plays "red team" and runs this checklist
+against the current state; findings become the next tasks. Keep a running
 `docs/RISKS.md`.
 
 ---
@@ -105,19 +107,15 @@ genome-firewall/
 
 ---
 
-## Shared foundation — do this TOGETHER FIRST (~45–60 min, one driver, others read)
+## Foundation (already scaffolded in this repo)
 
-This is the single most important step for 4-way parallel vibecoding. Until these
-**contracts** exist and are committed to `main`, nobody else should start, because a
-contract change later breaks everyone. Freeze them, then fork. Contracts live in
-`docs/DATA_SPEC.md`.
+**Repo skeleton + env.** The tree above, `environment.yml`, `config/saureus.yaml`,
+`Makefile` targets, `.gitignore` (ignore `data/raw`, `data/interim`, model artifacts;
+keep manifests).
 
-**1. Repo skeleton + env.** The tree above, `environment.yml`, `config/saureus.yaml`,
-`Makefile` targets (stubs OK), `.gitignore` (ignore `data/raw`, `data/interim`, model
-artifacts; keep manifests). *(Scaffolded in this repo already.)*
-
-**2. Freeze the data contracts** (in `docs/DATA_SPEC.md` — the seams between the 4
-workstreams; changing one requires a 2-min team sync):
+**Data contracts** (`docs/DATA_SPEC.md`) — the frozen interfaces between pipeline
+stages. Every stage's real output must validate against these schemas so downstream code
+never has to change when upstream data lands:
 - `data/processed/features.parquet`: index `genome_id` (str) + binary int columns; plus
   `data/processed/feature_spec.json` = ordered column list + version hash.
 - `data/processed/labels.csv`: `genome_id, antibiotic, label` (label ∈ {R,S}),
@@ -125,22 +123,21 @@ workstreams; changing one requires a 2-min team sync):
 - `data/processed/splits.json`: `genome_id → {split: train|cal|test, cluster_id: int}`.
 - `db/drugs_saureus.csv`: `antibiotic, drug_class, target_genes, known_markers,
   standardized_name`.
-- **Report object** (Module 03 seam), one dict per antibiotic:
+- **Report object** (Module 03 interface), one dict per antibiotic:
   `{antibiotic, verdict: fail|work|nocall, confidence: float, evidence_category: i|ii|iii,
   supporting_features: [str], target_present: bool, reasons: [str]}`.
 - Eval artifacts: `data/processed/metrics.json` + `reports/*.png` (reliability, PR curves).
 
-**3. Ship a synthetic data generator** (`src/genome_firewall/_synth.py`): emits
-schema-valid fake `features.parquet`, `labels.csv`, `splits.json`, and a sample report
-object. **This is what unblocks everyone** — the ML owner trains on synthetic features,
-the demo owner renders synthetic reports, all from minute one, before any real data or
-AMRFinderPlus output exists. Real files overwrite synthetic ones at integration.
+**No synthetic/placeholder data.** Every file in `data/`, `db/`, and `reports/` must be
+real — either pulled from BV-BRC/NCBI or produced by actually running the pipeline
+against real genomes. Don't fabricate rows to unblock yourself; if a real dependency
+isn't ready yet, work on a different stage instead.
 
-**Git workflow.** After the foundation lands on `main`, each person works on their own
-branch (`feat/data`, `feat/features`, `feat/model`, `feat/demo`) and merges to `main`
-frequently. Because ownership is **disjoint by file/directory**, merges are near-trivial.
-**Rule:** nobody edits `config/`, `docs/DATA_SPEC.md`, `_synth.py`, or another person's
-files without a quick sync — those are the shared seams.
+**Git workflow.** Anyone can work on any file — there's no fixed per-person ownership.
+Commit directly to `main` in small, frequent commits, or use short-lived branches for
+larger changes and merge them promptly. Since ownership isn't disjoint, pull before you
+start a session and communicate in the open if you're mid-edit on something someone else
+might touch.
 
 ---
 
@@ -269,20 +266,19 @@ unseen in training). Baseline vs DL deltas side by side.
 
 ---
 
-## Parallel execution — 4 workstreams (one per person)
+## Build order — one coherent path through the pipeline
 
-All four start at t=0 against the frozen contracts + synthetic data. Ownership is
-**disjoint by file** so git conflicts are near-zero. Each person reads
-[CLAUDE.md](CLAUDE.md) and [docs/DATA_SPEC.md](docs/DATA_SPEC.md) first, then works on
-their own branch (`feat/data`, `feat/features`, `feat/model`, `feat/demo`) and merges to
-`main` frequently.
+Read [CLAUDE.md](CLAUDE.md) and [docs/DATA_SPEC.md](docs/DATA_SPEC.md) first, whichever
+stage you pick up. The stages have a real sequential dependency — features need real
+genomes, models need real features and labels, the demo needs real report objects — so
+work roughly in this order. Whoever is available takes the next open stage; nobody owns
+a stage exclusively.
 
-### Person A — Data, Labels & Drug Database
+### Stage 1 — Data, Labels & Drug Database
 
-> Branch `feat/data`. **Fully independent from t=0** — nobody blocks you, and you block
-> Person C's *real* run (they use synthetic labels until you deliver).
+> Fully independent from the start — nothing blocks this stage.
 
-**You own (edit freely):** `src/genome_firewall/acquire.py`, `labels.py`; `data/raw/`
+**Files:** `src/genome_firewall/acquire.py`, `labels.py`; `data/raw/`
 (gitignored — commit the manifest, not the genomes); `db/drugs_saureus.csv`.
 
 **Deliverables:**
@@ -314,19 +310,18 @@ unverified copies without provenance.
 
 **Definition of done:** `labels.csv`, `manifest.csv`, FASTAs, and `drugs_saureus.csv`
 exist and validate against DATA_SPEC; antibiotic choice + counts logged in
-DECISIONS.md; Person C can drop your `labels.csv` in place of the synthetic one with no
-code change.
+DECISIONS.md.
 
 **Self-questioning before done:** Are any labels model-predicted rather than
 lab-measured? Are quality filters documented? Is the I→R decision recorded with its
 rationale?
 
-### Person B — Annotation & Feature Pipeline (Module 01)
+### Stage 2 — Annotation & Feature Pipeline (Module 01)
 
-> Branch `feat/features`. **Never blocked** — dev on a handful of public NCBI
-> *S. aureus* FASTAs immediately, swap to Person A's real genomes at integration.
+> Needs real FASTAs from Stage 1 (or a handful of public NCBI *S. aureus* genomes to get
+> the pipeline code working while Stage 1 finishes acquiring the full set).
 
-**You own (edit freely):** `src/genome_firewall/annotate.py`, `featurize.py`;
+**Files:** `src/genome_firewall/annotate.py`, `featurize.py`;
 `data/interim/amrfinder/` (per-genome TSVs — gitignored).
 
 **Deliverables:**
@@ -356,21 +351,18 @@ modeling, BV-BRC / NCBI **precomputed** AMRFinderPlus results parsed into the sa
 matrix schema.
 
 **Definition of done:** `features.parquet` + `feature_spec.json` validate against
-DATA_SPEC; the same code path turns one uploaded FASTA into a spec-ordered vector;
-Person C can drop your matrix in place of the synthetic one with no code change.
+DATA_SPEC; the same code path turns one uploaded FASTA into a spec-ordered vector.
 
 **Self-questioning before done:** Is `--organism Staphylococcus_aureus` set everywhere?
 Is the column order frozen and versioned? Does single-genome inference produce a vector
 identical in shape/order to the training matrix?
 
-### Person C — Modeling, Split, Calibration, Evaluation, DL stretch (Module 02)
+### Stage 3 — Modeling, Split, Calibration, Evaluation, DL stretch (Module 02)
 
-> Branch `feat/model`. **Never blocked** — train on the **synthetic**
-> `features.parquet` + `labels.csv` from `_synth.py` until A/B deliver, then swap to
-> real (same paths). This workstream is where the hackathon is won: ML rigor &
-> calibration is the judged priority.
+> Needs real `features.parquet` + `labels.csv` from Stages 1–2. This is where the
+> hackathon is won: ML rigor & calibration is the judged priority.
 
-**You own (edit freely):** `src/genome_firewall/split.py`, `model_baseline.py`,
+**Files:** `src/genome_firewall/split.py`, `model_baseline.py`,
 `calibrate.py`, `nocall.py`, `target_gate.py`, `evaluate.py`, `embed_esm.py`,
 `report.py`.
 
@@ -380,7 +372,7 @@ identical in shape/order to the training matrix?
 3. Report objects via `report.py` — DATA_SPEC §6.
 4. `data/processed/metrics.json` + reliability/PR PNGs in `reports/` — DATA_SPEC §7.
 
-**Tasks (in dependency order, but all doable on synthetic first):**
+**Tasks (in dependency order):**
 1. De-dup + grouped split (`split.py`): Mash (or skani ANI) sketches → de-dup
    near-identical genomes (~Mash <0.0002 / ANI ≥99.98%), report count collapsed →
    single-linkage cluster at a coarser threshold (tune ~0.001–0.005; cross-check MLST
@@ -416,17 +408,14 @@ calibration fit only on `cal`? Is any "work" verdict resting on marker-absence w
 target-present? Is any SHAP/coefficient presented as biological cause? Do we no-call
 enough, or forcing yes/no?
 
-### Person D — Demo, Responsible-AI & Integration/Glue (Module 03)
+### Stage 4 — Demo, Responsible-AI & Integration (Module 03)
 
-> Branch `feat/demo`. **Never blocked** — render the **mock** report object from
-> `_synth.py` until Person C delivers real ones (same schema, DATA_SPEC §6). You are also
-> the **integration owner**: keep `make all` green as synthetic files are replaced by
-> real.
+> Needs real report objects from Stage 3 (DATA_SPEC §6). Whoever picks this up is also
+> the **integration owner**: keep `make all` green end-to-end.
 
-**You own (edit freely):** `app/streamlit_app.py`; `docs/` (MODEL_CARD.md,
-RESPONSIBLE_AI.md, DECISIONS.md, RISKS.md) — **except** `docs/DATA_SPEC.md` (shared
-seam); `Makefile` end-to-end wiring; optional `src/genome_firewall/llm_summary.py`
-(flag-gated OpenAI layer).
+**Files:** `app/streamlit_app.py`; `docs/` (MODEL_CARD.md,
+RESPONSIBLE_AI.md, DECISIONS.md, RISKS.md, DATA_SPEC.md); `Makefile` end-to-end wiring;
+optional `src/genome_firewall/llm_summary.py` (flag-gated OpenAI layer).
 
 **Deliverables:**
 1. Working Streamlit demo (`streamlit run app/streamlit_app.py`).
@@ -446,17 +435,17 @@ seam); `Makefile` end-to-end wiring; optional `src/genome_firewall/llm_summary.p
    standard laboratory testing. Decision support only; a trained professional decides."*
    Plus a **defensive-use statement** and an explicit note that the tool never designs
    or modifies organisms.
-4. Live upload path: FASTA upload → call Person B's single-genome feature builder →
-   Person C's model + report builder → render. Cache models + AMRFinder DB; ship 2–3
+4. Live upload path: FASTA upload → call Stage 2's single-genome feature builder →
+   Stage 3's model + report builder → render. Cache models + AMRFinder DB; ship 2–3
    precomputed demo genomes (incl. a known **mecA+ MRSA**) for instant results.
 5. Responsible-AI docs: write MODEL_CARD.md (species/antibiotics covered & NOT covered,
    metrics, calibration, no-call policy, intended use, limitations) and
    RESPONSIBLE_AI.md mapping each brief requirement (defensive-by-construction, honest
    generalization, calibrated confidence + no-call, honest explanations, human
    oversight) to how we address it on held-out data.
-6. Own the self-questioning cadence: at each integration wave, run the 7-question
-   checklist (see CLAUDE.md) and log answers + evidence in DECISIONS.md; track open
-   items in RISKS.md.
+6. Own the self-questioning cadence: at each milestone, run the 7-question checklist
+   (see CLAUDE.md) and log answers + evidence in DECISIONS.md; track open items in
+   RISKS.md.
 7. Optional OpenAI layer (off by default, behind a flag): turn the *structured* report
    into a plain-language clinician summary **strictly grounded on the structured
    evidence** — no invented biology, always defers to lab confirmation. Skip if
@@ -471,16 +460,11 @@ end-to-end; responsible-AI docs complete.
 Does any card imply causation from a statistical feature? Is the no-call state shown as
 a legitimate, positive outcome? Does anything in the UI drift toward organism design?
 
-### Integration waves (how the seams connect)
-1. **t=0:** foundation on `main`; everyone forks; all build against synthetic/mock.
-2. **Wave 1:** B's real `features.parquet` + A's real `labels.csv` land → C swaps
-   synthetic → real and retrains.
-3. **Wave 2:** C's real report objects + `metrics.json`/plots land → D swaps mock → real.
-4. **Wave 3 (final 4h):** freeze; D runs `make all` end-to-end; rehearse demo on
-   precomputed held-out genomes (incl. a known **mecA+ MRSA**); write the "how we
-   addressed each Responsibility Requirement" section.
-
-**Continuous:** run the self-questioning checklist each wave; log to `DECISIONS.md`/`RISKS.md`.
+**Final stretch:** once Stage 4 is wired to real data, freeze; run `make all`
+end-to-end; rehearse the demo on precomputed held-out genomes (incl. a known
+**mecA+ MRSA**); write the "how we addressed each Responsibility Requirement" section.
+Run the self-questioning checklist continuously, not just at the end; log to
+`DECISIONS.md`/`RISKS.md` as you go.
 
 ---
 

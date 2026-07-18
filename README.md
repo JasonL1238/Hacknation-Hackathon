@@ -16,7 +16,8 @@ explains resistance that already exists and must never design or modify organism
 - **[PLAN.md](PLAN.md)** — the full technical plan.
 - **[CLAUDE.md](CLAUDE.md)** — rules every contributor (and their AI agent) must follow.
 - **[docs/DATA_SPEC.md](docs/DATA_SPEC.md)** — the frozen data/interface contracts.
-- **Your task list:** PLAN.md → "Parallel execution — 4 workstreams", the section for your person (A/B/C/D).
+- **Pick up a task:** PLAN.md → "Build order" lists the pipeline stages in dependency
+  order — take whichever is next and hasn't been started.
 
 ## The pipeline
 ```
@@ -29,12 +30,13 @@ Three required modules: **01 Genome Reader**, **02 Predictor**, **03 Decision Re
 ```bash
 conda env create -f environment.yml
 conda activate genome-firewall
-python -m genome_firewall._synth      # generate synthetic data so you can build immediately
-make all                              # full pipeline (once real data is in place)
+make amr-setup                        # install NCBI AMRFinderPlus (github.com/ncbi/amr)
+make all                               # full pipeline, real data only
 streamlit run app/streamlit_app.py    # the demo
 ```
 
 ## How the team works
-Four parallel workstreams, disjoint file ownership, everyone building against shared
-contracts + synthetic data so nobody is ever blocked. See [PLAN.md](PLAN.md) →
-"Parallel execution".
+No fixed per-person ownership — anyone can pick up any part of the pipeline. The stages
+have a real sequential dependency (data → features → model → demo), so work roughly in
+that order. No synthetic or placeholder data anywhere in the repo — every file is real.
+See [PLAN.md](PLAN.md) → "Build order".

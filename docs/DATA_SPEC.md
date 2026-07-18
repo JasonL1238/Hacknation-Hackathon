@@ -1,23 +1,23 @@
-# DATA_SPEC.md — Frozen interface contracts (the seams between the 4 workstreams)
+# DATA_SPEC.md — Frozen interface contracts (the seams between pipeline stages)
 
 > **This file is a shared seam. Do not change a schema without a 2-minute team sync** —
-> changing a contract breaks whoever consumes it. Everyone builds against these schemas
-> and against the synthetic data emitted by `src/genome_firewall/_synth.py`, then real
-> files overwrite the synthetic ones at the same paths during integration.
+> changing a contract breaks whoever consumes it. Every stage's real output must
+> validate against these schemas. No synthetic or placeholder data — every file these
+> schemas describe must come from a real source (BV-BRC/NCBI) or an actual pipeline run.
 
 All paths are relative to the repo root. `genome_id` is the join key everywhere (string,
 e.g. a BV-BRC genome id like `1280.1234`).
 
 ---
 
-## 1. `data/processed/features.parquet`  (produced by Person B → consumed by Person C)
+## 1. `data/processed/features.parquet`  (produced by the feature pipeline → consumed by modeling)
 - One row per genome. **Index:** `genome_id` (str).
 - **Columns:** binary `int8` presence/absence — AMR gene symbols (e.g. `mecA`, `blaZ`,
   `ermC`, `tetK`) and specific point mutations (e.g. `gyrA_S84L`, `grlA_S80F`).
 - Column set is the **union across the dataset**, frozen in `feature_spec.json`.
 - No missing values (absent = 0).
 
-## 2. `data/processed/feature_spec.json`  (Person B → Person C & D)
+## 2. `data/processed/feature_spec.json`  (feature pipeline → modeling & demo)
 ```json
 {
   "version": "sha256-of-sorted-columns",
@@ -28,7 +28,7 @@ e.g. a BV-BRC genome id like `1280.1234`).
 ```
 Inference (the demo) MUST build feature vectors in exactly this column order.
 
-## 3. `data/processed/labels.csv`  (produced by Person A → consumed by Person C)
+## 3. `data/processed/labels.csv`  (produced by data acquisition → consumed by modeling)
 | column | type | notes |
 |---|---|---|
 | `genome_id` | str | join key |
@@ -40,7 +40,7 @@ Inference (the demo) MUST build feature vectors in exactly this column order.
 One row per (genome_id, antibiotic). Intermediate "I" resolved per `labels.py` rule
 (default: merged into R; documented in DECISIONS.md).
 
-## 4. `data/processed/splits.json`  (produced by Person C)
+## 4. `data/processed/splits.json`  (produced by the split/modeling stage)
 ```json
 { "1280.1234": {"split": "train", "cluster_id": 7},
   "1280.5678": {"split": "test",  "cluster_id": 41} }
@@ -48,7 +48,7 @@ One row per (genome_id, antibiotic). Intermediate "I" resolved per `labels.py` r
 `split` ∈ {`train`, `cal`, `test`}. **Invariant:** every genome in a given `cluster_id`
 has the same `split` (no cluster spans splits — enforced by an assert in `split.py`).
 
-## 5. `db/drugs_saureus.csv`  (produced by Person A → consumed by Person C)
+## 5. `db/drugs_saureus.csv`  (produced by data acquisition → consumed by modeling)
 | column | type | notes |
 |---|---|---|
 | `antibiotic` | str | standardized name (join key to labels) |
@@ -57,7 +57,7 @@ has the same `split` (no cluster spans splits — enforced by an assert in `spli
 | `known_markers` | str | `;`-separated known resistance genes/mutations for this drug |
 | `standardized_name` | str | canonical display name |
 
-## 6. Report object  (produced by Person C `report.py` → consumed by Person D app)
+## 6. Report object  (produced by `report.py` → consumed by the Streamlit app)
 One dict per antibiotic (the app renders a list of these):
 ```python
 {
@@ -71,17 +71,7 @@ One dict per antibiotic (the app renders a list of these):
 }
 ```
 
-## 7. `data/processed/metrics.json`  (produced by Person C → consumed by Person D)
+## 7. `data/processed/metrics.json`  (produced by evaluation → consumed by the demo)
 Per-antibiotic and per-genetic-group: `balanced_accuracy`, `recall_R`, `recall_S`, `f1`,
 `auroc`, `pr_auc`, `brier`, `nocall_rate`, `accuracy_on_called`. Plus reliability &
 PR-curve PNGs in `reports/`.
-
----
-
-## Synthetic data generator — `src/genome_firewall/_synth.py`  (shared seam)
-Running `python -m genome_firewall._synth` writes schema-valid **fake** versions of
-files 1–4, a placeholder `db/drugs_saureus.csv`, and a sample report object at
-`data/processed/sample_report.json` (file 6), so Persons C and D can build from minute
-one. It only writes a file if it doesn't already exist (use `--force` to regenerate) —
-this way, real outputs from A/B/C can land at the same paths and are never clobbered by
-a re-run. Keep the synthetic schemas byte-compatible with this spec.

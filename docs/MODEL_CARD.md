@@ -1,6 +1,6 @@
 # Model Card — Genome Firewall (S. aureus AMR predictor)
 
-_Owner: Person D. Fill in as results land._
+_Fill in as results land._
 
 ## Intended use
 Defensive decision support: predict/explain existing antibiotic resistance from a
@@ -9,7 +9,7 @@ confirmed by standard laboratory testing.
 
 ## Coverage
 - **Species covered:** Staphylococcus aureus only.
-- **Antibiotics covered:** _(list — from Person A)_
+- **Antibiotics covered:** _(list, once chosen)_
 - **NOT covered:** other species; antibiotics not listed; sample-to-genome steps.
 
 ## Data

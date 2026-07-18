@@ -2,7 +2,8 @@
 
 > **Read this first, every session.** This file is auto-loaded by Claude Code for anyone
 > working in this repo. It encodes the shared guidelines the whole team agreed on so that
-> four people vibecoding in parallel produce one coherent, rigorous product. Follow it.
+> everyone vibecoding on this project — on any part of it — produces one coherent,
+> rigorous product. Follow it.
 
 ## What we're building
 **Genome Firewall** — a *defensive* research prototype for Hack-Nation Challenge 06. It
@@ -61,27 +62,29 @@ In addition to the standing adversarial requirement above, before calling anythi
 absence-of-markers honesty? · causation overclaim? · generalization on unseen groups? ·
 forcing yes/no vs no-call? · scope drift?
 
-## Ownership map — stay in your lane (this prevents merge conflicts)
-| You are | You own (edit freely) |
-|---|---|
-| **Person A** | `src/genome_firewall/acquire.py`, `labels.py`; `data/raw/`; `db/drugs_saureus.csv` |
-| **Person B** | `src/genome_firewall/annotate.py`, `featurize.py`; `data/interim/` |
-| **Person C** | `src/genome_firewall/split.py`, `model_baseline.py`, `calibrate.py`, `nocall.py`, `target_gate.py`, `evaluate.py`, `embed_esm.py`, `report.py` |
-| **Person D** | `app/streamlit_app.py`; `docs/` (except DATA_SPEC); `Makefile` end-to-end wiring; optional OpenAI layer |
+## Anyone can work on anything
+There is no fixed per-person file ownership. Read [PLAN.md](PLAN.md) → "Build order" to
+see which stage of the pipeline (data, features, modeling, demo) still needs work and
+pick it up — the stages have a genuine sequential dependency (features need real
+genomes, models need real features/labels, the demo needs real report objects), so work
+roughly in that order, but nobody is locked out of any file.
 
-**Shared seams — do NOT edit without a 2-minute team sync:** `config/`,
-`docs/DATA_SPEC.md`, `src/genome_firewall/_synth.py`. Changing a contract breaks everyone.
+**Shared contract — do NOT change without a quick sync:** `docs/DATA_SPEC.md`. It
+defines the schemas every stage's real output must match; changing one silently breaks
+whoever consumes it.
 
-## How to not be blocked
-Everyone builds against the **contracts** in `docs/DATA_SPEC.md` and the **synthetic data**
-from `src/genome_firewall/_synth.py` from minute one. Do not wait for another person's
-real output — code against the synthetic/mock version, then it swaps in automatically
-when the real file lands (same path, same schema).
+## No fake data, ever
+Every file under `data/`, `db/`, and `reports/` must come from a real source (BV-BRC,
+NCBI, or an actual run of this pipeline) — never synthetic, placeholder, or fabricated
+rows, even temporarily to "unblock" a stage. If a stage's real dependency isn't ready,
+work on a different stage instead of faking its input.
 
 ## Git workflow
-- Foundation is committed to `main` first. Then each person works on their branch:
-  `feat/data` (A) · `feat/features` (B) · `feat/model` (C) · `feat/demo` (D).
-- Merge to `main` frequently. Because ownership is disjoint by file, merges are trivial.
+- Commit directly to `main` in small, frequent commits, or use a short-lived branch for
+  a larger change and merge it promptly.
+- Since ownership isn't disjoint, pull before starting a session, and say out loud (in a
+  commit message or to the team) when you're mid-edit on something someone else might
+  touch.
 - Do not commit large data: `data/raw/` and `data/interim/` are gitignored; commit
   manifests/checksums, not genomes.
 
@@ -89,8 +92,8 @@ when the real file lands (same path, same schema).
 `conda env create -f environment.yml && conda activate genome-firewall`. AMRFinderPlus
 (https://github.com/ncbi/amr) is installed with `make amr-setup`
 (`scripts/setup_amrfinder.sh`), which sets up a separate `amr` conda env (falls back to
-Docker `ncbi/amr` if conda is unavailable) — see the Person B section in
-[PLAN.md](PLAN.md). Apple Silicon: PyTorch uses **MPS** for ESM-2.
+Docker `ncbi/amr` if conda is unavailable) — see PLAN.md's Module 01 / Stage 2 section.
+Apple Silicon: PyTorch uses **MPS** for ESM-2.
 
 ## Definition of done for the whole project
 `make all` runs download → annotate → featurize → split → train → calibrate → evaluate

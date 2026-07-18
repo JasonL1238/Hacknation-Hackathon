@@ -1,15 +1,17 @@
 # DECISIONS.md — decisions + self-questioning log
 
-Every integration wave, run the 7-question checklist (CLAUDE.md) and log answers +
-evidence here. Also record every non-obvious modeling/data choice with its rationale.
+At every milestone, run the 7-question checklist (CLAUDE.md) and log answers + evidence
+here. Also record every non-obvious modeling/data choice with its rationale, as you make
+it — per CLAUDE.md's adversarial-by-default rule, include the strongest case against the
+decision and why it doesn't hold.
 
 ## Template
 ```
-### <date/wave> — <decision or question>
+### <date> — <decision or question>
 - What: ...
 - Why: ...
+- Adversarial case considered: ... (the strongest argument this is wrong)
 - Evidence: ... (numbers, plots, asserts)
-- Owner: Person X
 ```
 
 ## Log
@@ -23,5 +25,5 @@ _(empty — fill as you go)_
 - [ ] Generalization: metrics on unseen genetic groups reported (with the drop).
 - [ ] Uncertainty: no-call rate + accuracy-on-called reported per drug.
 - [ ] Scope: nothing drifts toward organism design.
-- [ ] Antibiotic choice + label counts (Person A).
-- [ ] Split thresholds justified (Person C).
+- [ ] Antibiotic choice + label counts justified.
+- [ ] Split thresholds justified.

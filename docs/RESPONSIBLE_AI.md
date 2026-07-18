@@ -1,6 +1,6 @@
 # Responsible AI — how we address each Responsibility Requirement
 
-_Owner: Person D. Map each brief requirement to concrete evidence in our system._
+_Map each brief requirement to concrete evidence in our system._
 
 | Requirement (from brief) | How we address it | Evidence / where to see it |
 |---|---|---|
