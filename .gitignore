@@ -2,6 +2,7 @@
 .env
 .env.local
 *.env
+.streamlit/secrets.toml
 
 # Large data (per CLAUDE.md: commit manifests/checksums, not genomes)
 data/raw/
@@ -16,9 +17,14 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# Env managers
+# Env managers / stray installers
 .venv/
 venv/
+Miniforge3.sh
+Miniconda3*.sh
+
+# Logs
+*.log
 
 # Local AI tooling (machine-local settings + third-party skill assets)
 .claude/
