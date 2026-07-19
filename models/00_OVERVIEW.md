@@ -71,7 +71,7 @@ evaluate on `test` · never re-split randomly · any internal val set is carved 
 | 20 | [Calibration methods](20_calibration_methods.md) | method | local CPU | **core** | n/a |
 | 21 | [Conformal prediction](21_conformal_prediction.md) | method | local CPU | recommended | partial |
 | 22 | [Stacking / voting ensemble](22_stacking_ensemble.md) | method | local CPU | stretch | no |
-| 23 | [DNABERT-2](23_dnabert2.md) | sequence-DL (DNA) | Kaggle GPU → local | stretch | no |
+| 23 | [Soft-voting ensemble (XGB + HistGB + L1 LR)](23_soft_voting_ensemble.md) | method (tree + linear) | local CPU | recommended | partial |
 | 24 | [HyenaDNA](24_hyenadna.md) | sequence-DL (DNA) | Kaggle GPU → local | stretch | no |
 
 ---
@@ -93,19 +93,22 @@ matching. 05 (RBF SVM), 07 (extra trees), 14 (MLP) if time allows.
 embed-then-head protocol:
 - **Protein (ESM-2):** 17 (frozen embeddings + head) is the main planned stretch — embed
   on GPU, download vectors, sweep cheap heads locally; then 18 (ESM-2 fine-tune).
-- **DNA (nucleotide LMs):** 23 (DNABERT-2, multi-species — best domain fit), 24 (HyenaDNA,
-  single-nucleotide + long context but human-pretrained → domain-shift caveat), and 19
-  (Nucleotide Transformer). Plus 16 (FT-Transformer) as a tabular-transformer test.
+- **DNA (nucleotide LMs):** 24 (HyenaDNA, single-nucleotide + long context but
+  human-pretrained → domain-shift caveat) and 19 (Nucleotide Transformer, which also
+  supports a DNABERT-2 checkpoint). Plus 16 (FT-Transformer) as a tabular-transformer test.
 
 The genuine value story for sequence models is catching resistance from a *mutated* gene
-variant the AMRFinder catalog misses — DNA models (23/24) additionally reach non-coding /
+variant the AMRFinder catalog misses — DNA models (24, and 19's DNABERT-2 checkpoint option)
+additionally reach non-coding /
 regulatory and single-nucleotide signal that protein models and the presence/absence
 matrix can't express. Target that, and report deltas vs the baseline honestly (no gain is
 a valid result).
 
-**Tier 4 — combine.** 22 (stacking/voting) over the best base models, with out-of-fold
-meta-features built via GroupKFold on `train` only. Keep the LR baseline as the
-explainable model even if the stack scores higher.
+**Tier 4 — combine.** 22 (stacking, with a fitted meta-learner) or 23 (soft-voting ensemble
+of XGBoost + HistGradientBoosting + L1 LR — lower leakage surface, and doubles as the
+harness for comparing feature setups) over the best base models, with any tuning done via
+GroupKFold on `train` only. Keep the LR baseline as the explainable model even if the
+ensemble scores higher.
 
 ---
 

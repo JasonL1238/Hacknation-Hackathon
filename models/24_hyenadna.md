@@ -2,7 +2,7 @@
 
 > **One-liner:** A Hyena-operator genomic model with single-nucleotide tokenization and ultra-long context that embeds DNA regions for per-genome classification.
 > **Category:** sequence-DL (DNA) ·
-> **Runs on:** Kaggle GPU (embed) → local CPU (head) ·
+> **Runs on:** Colab GPU (embed) → Colab/local CPU (head) ·
 > **Priority:** stretch ·
 > **Interpretable:** no
 
@@ -37,6 +37,12 @@ Consumes **DNA sequence**, not `features.parquet`:
 - **Protocol:** embed each region with HyenaDNA, **mean-pool to one vector per genome**,
   train one **head per antibiotic** on `train`, calibrate on `cal`, evaluate on `test`.
   No `cluster_id` spans splits. Cache embeddings so head sweeps are cheap and CPU-only.
+
+### Concrete local and Colab paths
+- This machine's repository root is `/Users/jasonli/Documents/GitHub/Hacknation-Hackathon`; it currently contains 2,542 `.fna` files and 2,542 matching AMRFinder TSVs.
+- A Colab runtime cannot read that Mac path. Use `/content/Hacknation-Hackathon` for the clone and copy `data/raw/` plus `data/interim/amrfinder/` to `/content/drive/MyDrive/Hacknation-Hackathon-sequence-data/`, preserving their relative paths.
+- Generated notebook code must keep `REPO_ROOT` and `SEQUENCE_ROOT` separate, support environment-variable overrides, filter AMRFinder rows to `Type == AMR`, match contig IDs exactly, validate genome-ID coverage against labels/splits, and fail clearly on missing files.
+- **Relative-path option:** when running locally from the repository root, use `data/raw/`, `data/interim/amrfinder/`, `data/processed/`, and `db/` directly. In Colab, those relative sequence paths work only after the `.fna` and `.tsv` files have actually been copied beneath `/content/Hacknation-Hackathon/data/`; cloning alone does not include them. The notebook must change to the repository root and validate file counts before embedding.
 
 ## Adversarial checks it must survive
 - **Domain shift (the headline caveat):** human-pretrained → bacterial inference. Report
@@ -80,14 +86,16 @@ Paste the block below into ChatGPT/Claude to get complete, runnable code for thi
 ```text
 I am building "Genome Firewall", a strictly DEFENSIVE research prototype that predicts, per antibiotic, whether a reconstructed Staphylococcus aureus genome is likely resistant (R) or susceptible (S), with a calibrated confidence. It only predicts and explains resistance that already exists; it never designs or modifies organisms. The judged priority is ML RIGOR AND CALIBRATION (Brier score + reliability diagram on a held-out grouped-test split), not raw accuracy.
 
-I want to test HyenaDNA (LongSafari/hyenadna-*, a long-range genomic model with single-nucleotide tokenization; note it is pretrained on the HUMAN genome, so there is a domain-shift caveat on a bacterial genome) as a sequence-DL model. The environment is Kaggle with a GPU for the embedding step; the classifier head runs locally on CPU. Write complete, runnable Python.
+I want to test HyenaDNA (LongSafari/hyenadna-*, a long-range genomic model with single-nucleotide tokenization; note it is pretrained on the HUMAN genome, so there is a domain-shift caveat on a bacterial genome) as a sequence-DL model. The environment is GOOGLE COLAB with a GPU for the embedding step; the classifier head can run on CPU in the same notebook. Write complete, runnable Colab notebook cells, including Google Drive mounting and path validation.
 
 DATA CONTRACT (assume these exist, paths as given):
-- data/raw/<genome_id>.fna: assembled contigs (FASTA) per genome. genome_id is a string like "1280.1234".
-- data/interim/amrfinder/<genome_id>.tsv: per-genome AMRFinderPlus output with coordinates (contig, start, stop, strand) of flagged AMR gene loci.
-- data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S}, source, method. One row per (genome_id, antibiotic). ~4-6 antibiotics (erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
-- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
-- db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name.
+- PATHS: on this Mac, `REPO_ROOT=/Users/jasonli/Documents/GitHub/Hacknation-Hackathon` and `SEQUENCE_ROOT=REPO_ROOT`. In Colab, mount Google Drive, use `REPO_ROOT=/content/Hacknation-Hackathon`, and use `SEQUENCE_ROOT=/content/drive/MyDrive/Hacknation-Hackathon-sequence-data`. Define both as `pathlib.Path` values with environment-variable overrides `GENOME_FIREWALL_ROOT` and `GENOME_FIREWALL_SEQUENCE_ROOT`. Resolve tracked tables from REPO_ROOT and large sequence inputs from SEQUENCE_ROOT; validate paths and genome-ID overlap before embedding.
+- RELATIVE PATHS: if all sequence folders have been copied beneath REPO_ROOT, change the working directory to REPO_ROOT and use `data/raw`, `data/interim/amrfinder`, `data/processed`, and `db` as relative paths. In Colab, verify that `data/raw` contains `.fna` files and `data/interim/amrfinder` contains matching `.tsv` files; a Git clone by itself is insufficient.
+- SEQUENCE_ROOT/data/raw/<genome_id>.fna: assembled contigs (FASTA) per genome. genome_id is a string like "1280.1234".
+- SEQUENCE_ROOT/data/interim/amrfinder/<genome_id>.tsv: per-genome AMRFinderPlus output. Use only rows with `Type == AMR`; coordinates are 1-based inclusive (`Contig id`, `Start`, `Stop`, `Strand`) and the contig ID must match the FASTA record ID exactly.
+- REPO_ROOT/data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S}, source, method. One row per (genome_id, antibiotic). ~4-6 antibiotics (erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
+- REPO_ROOT/data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
+- REPO_ROOT/db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name.
 
 STEP 1 - EMBED (GPU):
 - For each genome, extract the DNA of the AMRFinderPlus-flagged gene loci from its FASTA using the TSV coordinates, with a configurable flank (default ~200 bp). Also support a large-window / whole-contig mode to exploit HyenaDNA's long context.
