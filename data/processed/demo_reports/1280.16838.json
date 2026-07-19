@@ -1,0 +1,134 @@
+[
+  {
+    "antibiotic": "cefoxitin",
+    "verdict": "fail",
+    "confidence": 1.0,
+    "evidence_category": "i",
+    "supporting_features": [
+      "mecA",
+      "mecR1",
+      "blaZ",
+      "blaR1",
+      "blaI",
+      "tet(38)",
+      "mepA",
+      "glpT_A100V"
+    ],
+    "target_present": true,
+    "reasons": [
+      "mecA detected (known cefoxitin resistance determinant)",
+      "mecR1 detected (known cefoxitin resistance determinant)",
+      "blaZ detected (known cefoxitin resistance determinant)",
+      "blaR1 detected (known cefoxitin resistance determinant)",
+      "blaI detected (known cefoxitin resistance determinant)"
+    ]
+  },
+  {
+    "antibiotic": "clindamycin",
+    "verdict": "fail",
+    "confidence": 0.9577,
+    "evidence_category": "i",
+    "supporting_features": [
+      "erm(B)",
+      "aph(3')-IIIa",
+      "blaI",
+      "mepA",
+      "tet(38)"
+    ],
+    "target_present": true,
+    "reasons": [
+      "erm(B) detected (known clindamycin resistance determinant)",
+      "aph(3')-IIIa \u2014 statistical association (coefficient=1.24; NOT proven causal)",
+      "blaI \u2014 statistical association (coefficient=-0.98; NOT proven causal)",
+      "mepA \u2014 statistical association (coefficient=-0.57; NOT proven causal)",
+      "tet(38) \u2014 statistical association (coefficient=-0.57; NOT proven causal)"
+    ]
+  },
+  {
+    "antibiotic": "erythromycin",
+    "verdict": "fail",
+    "confidence": 0.9756,
+    "evidence_category": "i",
+    "supporting_features": [
+      "erm(B)",
+      "ant(6)-Ia",
+      "aph(3')-IIIa",
+      "mecR1",
+      "blaI"
+    ],
+    "target_present": true,
+    "reasons": [
+      "erm(B) detected (known erythromycin resistance determinant)",
+      "ant(6)-Ia \u2014 statistical association (coefficient=0.93; NOT proven causal)",
+      "aph(3')-IIIa \u2014 statistical association (coefficient=0.92; NOT proven causal)",
+      "mecR1 \u2014 statistical association (coefficient=-0.81; NOT proven causal)",
+      "blaI \u2014 statistical association (coefficient=-0.69; NOT proven causal)"
+    ]
+  },
+  {
+    "antibiotic": "tetracycline",
+    "verdict": "fail",
+    "confidence": 0.6857,
+    "evidence_category": "i",
+    "supporting_features": [
+      "tet(K)",
+      "tet(38)",
+      "mepA",
+      "glpT_A100V",
+      "mecR1",
+      "ant(6)-Ia",
+      "blaI"
+    ],
+    "target_present": true,
+    "reasons": [
+      "tet(K) detected (known tetracycline resistance determinant)",
+      "tet(38) detected (known tetracycline resistance determinant)",
+      "mepA detected (known tetracycline resistance determinant)",
+      "glpT_A100V \u2014 statistical association (coefficient=-0.96; NOT proven causal)",
+      "mecR1 \u2014 statistical association (coefficient=-0.83; NOT proven causal)"
+    ]
+  },
+  {
+    "antibiotic": "ciprofloxacin",
+    "verdict": "work",
+    "confidence": 0.8951,
+    "evidence_category": "i",
+    "supporting_features": [
+      "mepA",
+      "tet(38)",
+      "blaR1",
+      "mecA",
+      "glpT_A100V"
+    ],
+    "target_present": true,
+    "reasons": [
+      "mepA detected (known ciprofloxacin resistance determinant)",
+      "tet(38) \u2014 statistical association (coefficient=-1.16; NOT proven causal)",
+      "blaR1 \u2014 statistical association (coefficient=0.70; NOT proven causal)",
+      "mecA \u2014 statistical association (coefficient=0.52; NOT proven causal)",
+      "glpT_A100V \u2014 statistical association (coefficient=-0.49; NOT proven causal)"
+    ]
+  },
+  {
+    "antibiotic": "gentamicin",
+    "verdict": "work",
+    "confidence": 0.9781,
+    "evidence_category": "i",
+    "supporting_features": [
+      "ant(6)-Ia",
+      "aph(3')-IIIa",
+      "blaR1",
+      "tet(K)",
+      "blaZ",
+      "lsa(E)"
+    ],
+    "target_present": true,
+    "reasons": [
+      "ant(6)-Ia detected (known gentamicin resistance determinant)",
+      "aph(3')-IIIa \u2014 statistical association (coefficient=2.00; NOT proven causal)",
+      "blaR1 \u2014 statistical association (coefficient=0.95; NOT proven causal)",
+      "tet(K) \u2014 statistical association (coefficient=-0.73; NOT proven causal)",
+      "blaZ \u2014 statistical association (coefficient=-0.65; NOT proven causal)"
+    ]
+  }
+]
