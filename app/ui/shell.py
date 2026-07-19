@@ -144,7 +144,13 @@ def render_sidebar(user: dict) -> None:
 
 def render_topbar(user: dict, store) -> None:
     st.markdown('<div class="gf-topbar-wrap">', unsafe_allow_html=True)
-    c_search, c_ws, c_new, c_notif, c_help = st.columns([6, 3, 2.4, 0.9, 0.9])
+    # The New Analysis shortcut is shown on every tab except Settings.
+    show_new = current_route() != "settings"
+    if show_new:
+        c_search, c_ws, c_new, c_notif, c_help = st.columns([6, 3, 2.4, 0.9, 0.9])
+    else:
+        c_search, c_ws, c_notif, c_help = st.columns([6, 5.4, 0.9, 0.9])
+        c_new = None
 
     with c_search:
         q = st.text_input(
@@ -163,10 +169,11 @@ def render_topbar(user: dict, store) -> None:
             unsafe_allow_html=True,
         )
 
-    with c_new:
-        if st.button("New Analysis", key="tb_new", type="primary",
-                     use_container_width=True, icon=":material/add:"):
-            nav_to("new_analysis")
+    if c_new is not None:
+        with c_new:
+            if st.button("New Analysis", key="tb_new", type="primary",
+                         use_container_width=True, icon=":material/add:"):
+                nav_to("new_analysis")
 
     unread = sum(1 for n in store.notifications if n.get("unread"))
     with c_notif:
