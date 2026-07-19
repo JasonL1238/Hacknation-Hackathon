@@ -46,13 +46,6 @@ def get_setting(name: str, default: str = "") -> str:
     return str(value).strip()
 
 
-def setting_enabled(name: str, *, default: bool = False) -> bool:
-    value = get_setting(name)
-    if not value:
-        return default
-    return value.lower() in {"1", "true", "yes", "on"}
-
-
 def supabase_configured() -> bool:
     return bool(get_setting("SUPABASE_URL") and get_setting("SUPABASE_KEY"))
 

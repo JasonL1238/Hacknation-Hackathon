@@ -23,9 +23,8 @@ Email/password authentication is enabled by default on hosted Supabase projects.
 Supabase normally requires new users to confirm their email. After confirmation, the
 user returns to the app and signs in normally. Google sign-in and self-service password
 recovery are intentionally not offered because Streamlit's server session does not
-reliably survive the required external token redirect. An owner can initiate account
-recovery must be handled by the project owner or added later through a dedicated
-recovery frontend.
+reliably survive the required external token redirect. Account recovery must be handled
+by the project owner or added later through a dedicated recovery frontend.
 
 You do **not** need to run [`db/schema.sql`](../db/schema.sql). Supabase is used only
 for user authentication in this deployment. Patient, case, and result records are held
@@ -52,8 +51,9 @@ only in each visitor's Streamlit session and are not persisted.
    SUPABASE_KEY = "YOUR_PUBLISHABLE_KEY"
    ```
 
-5. Click **Deploy**. The first build can take several minutes because Conda installs
-   the pinned AMRFinderPlus runtime and its frozen database.
+5. Click **Deploy**. The first build can take several minutes while Conda installs
+   the pinned runtime. The first real genome analysis also provisions the compatible
+   AMRFinderPlus database and can take longer than later analyses.
 6. Once Streamlit assigns the final app URL, put that URL into the Supabase Site URL
    and Redirect URLs from step 1, then test account creation, email confirmation,
    sign-in, and one synthetic FASTA upload.
@@ -68,7 +68,5 @@ AMRFinder output are removed after success or failure.
 The app is an unaudited research demonstration. Do not upload protected health
 information or use its output to make clinical decisions.
 
-## Optional settings
-
-Authenticated deployments disable the guest bypass automatically. To deliberately
-restore it, add `ENABLE_DEMO_MODE = "true"` to Streamlit Secrets.
+Supabase configuration is mandatory. If either required value is missing, the app
+fails closed with a configuration error; there is no guest or URL-based bypass.

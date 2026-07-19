@@ -10,6 +10,9 @@ separate conda env `amr` created by `scripts/setup_amrfinder.sh`.
 """
 import subprocess
 import shutil
+import os
+import tempfile
+import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -20,6 +23,8 @@ AMRFINDER_DIR = REPO_ROOT / "data" / "interim" / "amrfinder"
 AMR_ENV = "amr"
 ORGANISM = "Staphylococcus_aureus"
 THREADS_PER_JOB = 2
+RUNTIME_DB_ROOT = Path(tempfile.gettempdir()) / "bioshield-amrfinder-data"
+_DB_SETUP_LOCK = threading.Lock()
 
 
 def amrfinder_command() -> list[str]:
@@ -35,15 +40,74 @@ def amrfinder_command() -> list[str]:
     )
 
 
-def amrfinder_db_version() -> str:
-    out = subprocess.run(
+def amrfinder_update_command() -> list[str]:
+    """Return the matching database-updater command prefix."""
+
+    direct = shutil.which("amrfinder_update")
+    if direct:
+        return [direct]
+    conda = shutil.which("conda")
+    if conda:
+        return [conda, "run", "-n", AMR_ENV, "amrfinder_update"]
+    raise RuntimeError(
+        "amrfinder_update is not installed with AMRFinderPlus. "
+        "Create environment.yml or run `make amr-setup`."
+    )
+
+
+def _installed_db_version() -> str:
+    completed = subprocess.run(
         [*amrfinder_command(), "--database_version"],
-        capture_output=True, text=True, check=True,
-    ).stdout
+        capture_output=True, text=True,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "unknown error").strip()
+        raise RuntimeError(f"AMRFinderPlus database is unavailable: {detail[:1000]}")
+    out = completed.stdout
     for line in out.splitlines():
         if line.startswith("Database version:"):
             return line.split(":", 1)[1].strip()
     return "unknown"
+
+
+def amrfinder_db_version() -> str:
+    """Return the database version, provisioning the runtime database if absent.
+
+    Bioconda installs the AMRFinderPlus executable but not necessarily its database.
+    Streamlit instances therefore download the database lazily into temporary server
+    storage. ``featurize.extract_fasta_features`` still rejects any version that does
+    not exactly match the model's frozen feature specification.
+    """
+
+    try:
+        return _installed_db_version()
+    except RuntimeError:
+        pass
+
+    with _DB_SETUP_LOCK:
+        # Another request may have completed setup while this one waited.
+        try:
+            return _installed_db_version()
+        except RuntimeError:
+            pass
+
+        db_root = Path(
+            os.environ.get("BIOSHIELD_AMRFINDER_DATA_ROOT", str(RUNTIME_DB_ROOT))
+        )
+        db_root.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [*amrfinder_update_command(), "--database", str(db_root)],
+            capture_output=True, text=True, timeout=900,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "unknown error").strip()
+            raise RuntimeError(
+                "AMRFinderPlus database provisioning failed: " + detail[:1000]
+            )
+
+        latest = db_root / "latest"
+        os.environ["AMRFINDER_DB"] = str(latest if latest.exists() else db_root)
+        return _installed_db_version()
 
 
 def _annotate_one(fasta_path: Path) -> tuple[str, str | None]:

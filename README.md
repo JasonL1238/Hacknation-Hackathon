@@ -225,9 +225,9 @@ Full detail in [`docs/RESPONSIBLE_AI.md`](docs/RESPONSIBLE_AI.md) and [`docs/RIS
 
 ## Deployment
 
-The application is prepared for Streamlit Community Cloud with a pinned Conda environment, a Bioconda AMRFinderPlus runtime, final XGBoost model artifacts, per-visitor Supabase authentication clients, and an authenticated-by-default posture. Exact configuration values and secrets setup are documented in [`docs/DEPLOY_STREAMLIT.md`](docs/DEPLOY_STREAMLIT.md).
+The application is prepared for Streamlit Community Cloud with a pinned Conda environment, a Bioconda AMRFinderPlus runtime, final XGBoost model artifacts, and per-visitor Supabase authentication clients. Supabase authentication is mandatory; there is no guest bypass. Exact configuration values and secrets setup are documented in [`docs/DEPLOY_STREAMLIT.md`](docs/DEPLOY_STREAMLIT.md).
 
-Do not run `amrfinder -u` in the deployed app: inference intentionally refuses to run against a database version different from the one frozen in `data/processed/feature_spec.json`.
+When the AMRFinderPlus database is absent, the app provisions it at runtime and then verifies that its version matches the frozen contract in `data/processed/feature_spec.json`. Inference fails safely if the versions differ.
 
 The upload path is synchronous and single-genome. FASTA bytes are held only until AMRFinderPlus and model inference complete; the temporary FASTA and TSV are deleted on success or failure. Results and submission metadata persist in the authenticated Streamlit session, but the genome itself is never uploaded to Supabase Storage.
 

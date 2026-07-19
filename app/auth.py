@@ -1,9 +1,8 @@
 """
 Authentication for BioShield AI.
 
-Email/password via Supabase, plus an optional zero-setup guest/demo mode.
-Supabase is imported lazily so the app boots and the demo runs even when the
-`supabase` package or credentials are absent — the guest path never touches it.
+Email/password authentication via Supabase. Authentication configuration is
+mandatory; the application has no guest or unauthenticated workspace.
 
 The auth logic functions are backend-agnostic; a real IdP can replace the
 Supabase calls without changing the sign-in UI.
@@ -47,14 +46,6 @@ def supabase_available() -> bool:
     return supabase_configured()
 
 
-def demo_mode_available() -> bool:
-    """Allow local demos by default, but require auth when Supabase is configured."""
-
-    from app.supabase_client import setting_enabled
-
-    return setting_enabled("ENABLE_DEMO_MODE", default=not supabase_available())
-
-
 # ─── session helpers ─────────────────────────────────────────────────────────
 def get_current_user() -> dict | None:
     return st.session_state.get("user")
@@ -62,24 +53,6 @@ def get_current_user() -> dict | None:
 
 def is_authenticated() -> bool:
     return get_current_user() is not None
-
-
-def is_guest() -> bool:
-    user = get_current_user()
-    return bool(user and user.get("is_guest"))
-
-
-def enter_guest_mode() -> None:
-    if not demo_mode_available():
-        raise RuntimeError("Demo mode is disabled for this deployment.")
-    st.session_state["user"] = {
-        "id": "guest",
-        "email": "demo.clinician@bioshield.ai",
-        "user_metadata": {"full_name": "Dr. Demo Clinician"},
-        "is_guest": True,
-    }
-    st.session_state["session"] = None
-    st.session_state["access_token"] = None
 
 
 def _set_session(user: dict, session: dict) -> None:
@@ -90,7 +63,7 @@ def _set_session(user: dict, session: dict) -> None:
 
 def _clear_session() -> None:
     for key in ("user", "session", "access_token", "gf_store",
-                "guest_patients", "guest_records", "route", "route_params",
+                "route", "route_params",
                 "_pdf_done", "_pdf_msg", "_clear_new_patient", "wizard"):
         st.session_state.pop(key, None)
     from app.supabase_client import clear_supabase_client
@@ -135,11 +108,10 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
 
 
 def sign_out() -> None:
-    if not is_guest():
-        try:
-            _supabase().auth.sign_out()
-        except Exception:
-            pass
+    try:
+        _supabase().auth.sign_out()
+    except Exception:
+        pass
     _clear_session()
 
 
@@ -211,9 +183,6 @@ html, body, [data-testid="stAppViewContainer"] { height:100vh !important; overfl
 .gf-secnote { display:flex; align-items:center; gap:8px; font-size:.76rem; color:var(--gf-muted);
   background:var(--gf-surface-2); border:1px solid var(--gf-border); border-radius:var(--gf-r); padding:9px 12px; margin-top:14px; }
 .gf-secnote .si { color:var(--gf-work); flex:none; }
-.gf-orline { display:flex; align-items:center; gap:12px; color:var(--gf-faint); font-size:.72rem;
-  text-transform:uppercase; letter-spacing:.08em; margin:14px 0 10px; }
-.gf-orline::before, .gf-orline::after { content:""; flex:1; height:1px; background:var(--gf-border); }
 </style>
 """
 
@@ -263,10 +232,6 @@ def render_login_page() -> None:
                     '<div class="lead">Access your clinical research workspace.</div>',
                     unsafe_allow_html=True)
 
-        auth_ready = supabase_available()
-        if not auth_ready:
-            st.info("Supabase authentication is not configured. Local demo mode is available below.")
-
         tab_login, tab_register = st.tabs(["Sign in", "Create account"])
 
         with tab_login:
@@ -304,13 +269,6 @@ def render_login_page() -> None:
                         (st.success if ok else st.error)(msg)
                         if ok and is_authenticated():
                             st.rerun()
-
-        if demo_mode_available():
-            st.markdown('<div class="gf-orline">or</div>', unsafe_allow_html=True)
-            if st.button("Continue to demo workspace", use_container_width=True,
-                         icon=":material/science:"):
-                enter_guest_mode()
-                st.rerun()
 
         st.markdown(
             '<div class="gf-secnote"><span class="si">'

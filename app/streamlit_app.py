@@ -58,25 +58,21 @@ st.set_page_config(
 
 from app.ui.theme import inject as inject_theme  # noqa: E402
 from app.auth import (  # noqa: E402
-    demo_mode_available,
     is_authenticated,
     render_login_page,
     get_current_user,
+    supabase_available,
 )
 
 inject_theme()
 
-_params = st.query_params
-
-# ─── demo deep-link (?demo=1 enters the synthetic demo workspace) ────────────
-if "demo" in _params and demo_mode_available() and not is_authenticated():
-    from app.auth import enter_guest_mode
-    enter_guest_mode()
-    _goto = _params.get("goto")
-    st.query_params.clear()
-    if _goto:
-        st.session_state["_pending_goto"] = _goto
-    st.rerun()
+# ─── fail-closed authentication configuration ───────────────────────────────
+if not supabase_available():
+    st.error(
+        "Authentication is unavailable because SUPABASE_URL and SUPABASE_KEY "
+        "are not configured for this deployment."
+    )
+    st.stop()
 
 # ─── auth gate ────────────────────────────────────────────────────────────────
 if not is_authenticated():
@@ -94,35 +90,6 @@ store = get_store()
 # default landing route
 if "route" not in st.session_state:
     st.session_state["route"] = "overview"
-
-# Resolve a pending demo deep-link now that the store exists. Special targets
-# (report/processing/patient/case) resolve against seeded records; anything else
-# is treated as a plain top-level route.
-_pending = st.session_state.pop("_pending_goto", None)
-if _pending:
-    _analyses = store.list_analyses()
-    if _pending == "report":
-        _hit = next((a for a in _analyses if a.is_complete), None)
-        if _hit:
-            st.session_state["route"] = "report"
-            st.session_state["route_params"] = {"analysis_id": _hit.id}
-    elif _pending == "processing":
-        _hit = next((a for a in _analyses if a.status == "processing"), None)
-        if _hit:
-            st.session_state["route"] = "analysis"
-            st.session_state["route_params"] = {"analysis_id": _hit.id}
-    elif _pending == "patient":
-        _ps = store.list_patients()
-        if _ps:
-            st.session_state["route"] = "patient"
-            st.session_state["route_params"] = {"patient_id": _ps[0].id}
-    elif _pending == "case":
-        _cs = store.list_cases()
-        if _cs:
-            st.session_state["route"] = "case"
-            st.session_state["route_params"] = {"case_id": _cs[0].id}
-    else:
-        st.session_state["route"] = _pending
 
 render_sidebar(user)
 render_topbar(user, store)
