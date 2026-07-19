@@ -56,8 +56,7 @@ Antibiotic-resistant infections are associated with **4.7 million deaths** annua
 
 ## Model Evaluation
 
-The historical comparison is a calibrated soft ensemble of XGBoost,
-HistGradientBoosting, and L1 logistic regression, evaluated alongside each base model.
+The comparison is a calibrated XGBoost machine learning model.
 The completed retained experiment is genotype-only; the focused research catalog
 is [`models/00_OVERVIEW.md`](models/00_OVERVIEW.md), and the local experiment workspace is
 [`experiments/model_bakeoff/`](experiments/model_bakeoff/README.md).
