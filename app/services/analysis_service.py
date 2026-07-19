@@ -394,6 +394,129 @@ class MockAnalysisProvider(AnalysisProvider):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Local real-model provider — runs the trained calibrated models (report.py)
+# ─────────────────────────────────────────────────────────────────────────────
+class LocalAnalysisProvider(MockAnalysisProvider):
+    """Real per-drug predictions from the trained + calibrated models.
+
+    Inherits the mock's *real* FASTA validation and time-based stage machine, and
+    replaces only result generation. It resolves the submission to a dataset genome
+    by filename stem (a BV-BRC id such as ``1280.16771``), loads that genome's
+    AMRFinderPlus feature vector, and runs the real `report.build_report_for_antibiotic`
+    per drug — the same calibrated probabilities `evaluate.py` scores on the held-out
+    test split.
+
+    If the genome is unknown and live AMRFinderPlus annotation is unavailable, it
+    returns an honest all-no-call ("could not annotate") — it never fabricates calls.
+    """
+
+    name = "local"
+
+    def generate_results(self, analysis) -> list[AntibioticResult]:
+        import json
+        from genome_firewall import report
+
+        gid = self._genome_id(analysis)
+
+        # 1) Precomputed real report for a bundled demo genome — use as-is.
+        if gid:
+            demo = _ROOT / "data" / "processed" / "demo_reports" / f"{gid}.json"
+            if demo.exists():
+                return self._to_results(json.loads(demo.read_text()))
+
+        # 2) Genome features on disk — run the real models live.
+        drugs = {d.get("antibiotic", ""): d for d in _DRUGS}
+        fv, cols = self._feature_vector(gid)
+        if fv is not None:
+            config = report._load_config()
+            models = report._load_models()
+            legacy = []
+            for ab, model in models.items():
+                r = report.build_report_for_antibiotic(ab, fv, cols, model, drugs.get(ab, {}), config)
+                legacy.append(r)
+            return self._to_results(legacy)
+
+        # 3) Cannot annotate → honest all-no-call, never fabricated predictions.
+        return self._unannotatable(analysis)
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+    def _genome_id(self, analysis) -> str | None:
+        if not (analysis.genome and analysis.genome.filename):
+            return None
+        stem = Path(analysis.genome.filename).name
+        for suffix in (".fna", ".fasta", ".fa", ".fna.gz", ".fasta.gz"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        return stem or None
+
+    def _feature_vector(self, gid: str | None):
+        """Return (feature_vector, columns) for a known genome id, else (None, None)."""
+        if not gid:
+            return None, None
+        try:
+            import pandas as pd
+            from genome_firewall import report
+
+            feats = _load_features()
+            if feats is None or gid not in feats.index:
+                return None, None
+            cols = report._load_feature_spec()["columns"]
+            return feats.loc[gid].reindex(cols).fillna(0).to_numpy(), cols
+        except Exception:  # noqa: BLE001 — any load failure → treat as unavailable
+            return None, None
+
+    def _to_results(self, legacy: list[dict]) -> list[AntibioticResult]:
+        by_ab = {d.get("antibiotic", ""): d for d in _DRUGS}
+        out = []
+        for r in legacy:
+            drug = by_ab.get(str(r.get("antibiotic", "")).lower(), {})
+            r.setdefault("drug_class", drug.get("drug_class", ""))
+            out.append(AntibioticResult.from_legacy_report(r))
+        out.sort(key=lambda x: ({"likely_to_fail": 0, "likely_to_work": 1,
+                                 "no_call": 2}.get(x.prediction, 3), x.antibiotic))
+        return out
+
+    def _unannotatable(self, analysis) -> list[AntibioticResult]:
+        results = []
+        for drug in _DRUGS:
+            ab = drug.get("standardized_name") or drug.get("antibiotic", "").capitalize()
+            results.append(AntibioticResult(
+                antibiotic=ab, drug_class=drug.get("drug_class", ""),
+                prediction=Prediction.NO_CALL.value,
+                evidence_category=EvidenceCategory.CONFLICTING.value,
+                target_gate=TargetGate.UNKNOWN.value,
+                no_call_threshold_hit=True,
+                explanation=(
+                    "This genome is not in the annotated dataset and live "
+                    "AMRFinderPlus annotation is unavailable in this environment, so "
+                    "resistance features could not be extracted. No prediction is made."
+                ),
+                limitations=["Confirm with standard laboratory testing."],
+            ))
+        return results
+
+
+_FEATURES = None
+_FEATURES_LOADED = False
+
+
+def _load_features():
+    """Lazily load the processed feature matrix (indexed by genome_id), or None."""
+    global _FEATURES, _FEATURES_LOADED
+    if _FEATURES_LOADED:
+        return _FEATURES
+    _FEATURES_LOADED = True
+    try:
+        import pandas as pd
+        path = _ROOT / "data" / "processed" / "features.parquet"
+        _FEATURES = pd.read_parquet(path) if path.exists() else None
+    except Exception:  # noqa: BLE001
+        _FEATURES = None
+    return _FEATURES
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Placeholder real-API provider (shows the integration point)
 # ─────────────────────────────────────────────────────────────────────────────
 class ApiAnalysisProvider(MockAnalysisProvider):
@@ -416,10 +539,27 @@ _provider: AnalysisProvider | None = None
 
 
 def get_provider() -> AnalysisProvider:
-    """Return the configured analysis provider (env-selected, memoized)."""
+    """Return the configured analysis provider (memoized).
+
+    Precedence: explicit HTTP API (GENOME_FIREWALL_API_BASE) → forced provider
+    (GENOME_FIREWALL_PROVIDER=mock|local) → auto: the real local model when trained
+    models are present on disk, else the mock demo brain.
+    """
     global _provider
     if _provider is not None:
         return _provider
+
     base = os.environ.get("GENOME_FIREWALL_API_BASE", "").strip()
-    _provider = ApiAnalysisProvider(base) if base else MockAnalysisProvider()
+    forced = os.environ.get("GENOME_FIREWALL_PROVIDER", "").strip().lower()
+    models_present = any((_ROOT / "data" / "processed" / "models").glob("*.pkl")) \
+        if (_ROOT / "data" / "processed" / "models").exists() else False
+
+    if base:
+        _provider = ApiAnalysisProvider(base)
+    elif forced == "mock":
+        _provider = MockAnalysisProvider()
+    elif forced == "local" or models_present:
+        _provider = LocalAnalysisProvider()
+    else:
+        _provider = MockAnalysisProvider()
     return _provider
