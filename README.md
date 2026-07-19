@@ -225,7 +225,7 @@ Full detail in [`docs/RESPONSIBLE_AI.md`](docs/RESPONSIBLE_AI.md) and [`docs/RIS
 
 ## Deployment
 
-The application is prepared for Streamlit Community Cloud with a pinned Conda environment, a Bioconda AMRFinderPlus runtime, final XGBoost model artifacts, and per-visitor Supabase authentication clients. Supabase authentication is mandatory; there is no guest bypass. Exact configuration values and secrets setup are documented in [`docs/DEPLOY_STREAMLIT.md`](docs/DEPLOY_STREAMLIT.md).
+The application is prepared for Streamlit Community Cloud with a pinned Conda environment, a Bioconda AMRFinderPlus runtime, final XGBoost model artifacts, and per-visitor Supabase authentication clients. An optional, explicitly enabled synthetic guest workspace is available for public demonstrations. Exact configuration values and secrets setup are documented in [`docs/DEPLOY_STREAMLIT.md`](docs/DEPLOY_STREAMLIT.md).
 
 When the AMRFinderPlus database is absent, the app provisions it at runtime and then verifies that its version matches the frozen contract in `data/processed/feature_spec.json`. Inference fails safely if the versions differ.
 

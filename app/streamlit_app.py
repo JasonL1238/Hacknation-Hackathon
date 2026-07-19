@@ -58,19 +58,22 @@ st.set_page_config(
 
 from app.ui.theme import inject as inject_theme  # noqa: E402
 from app.auth import (  # noqa: E402
+    demo_mode_available,
     is_authenticated,
     render_login_page,
     get_current_user,
     supabase_available,
+    supabase_unavailable_reason,
 )
 
 inject_theme()
 
-# ─── fail-closed authentication configuration ───────────────────────────────
-if not supabase_available():
+# ─── require either account auth or the explicitly enabled demo workspace ───
+if not supabase_available() and not demo_mode_available():
     st.error(
-        "Authentication is unavailable because SUPABASE_URL and SUPABASE_KEY "
-        "are not configured for this deployment."
+        f"Authentication is unavailable. {supabase_unavailable_reason()} "
+        "To expose only the synthetic demo workspace, set "
+        'ENABLE_DEMO_MODE = "true" in Streamlit Secrets.'
     )
     st.stop()
 

@@ -1,4 +1,4 @@
-"""Settings — authenticated session, model, and data-handling posture."""
+"""Settings — session, roles, model, and data-handling posture."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ def render(store, user) -> None:
 
     meta = user.get("user_metadata", {})
     name = meta.get("full_name") or user.get("email", "Clinician")
+    is_guest = user.get("is_guest")
 
     left, right = st.columns([1, 1])
     with left:
@@ -26,7 +27,7 @@ def render(store, user) -> None:
         st.markdown(
             f'<div class="gf-meta"><div><div class="k">Name</div><div class="v">{C.esc(name)}</div></div>'
             f'<div><div class="k">Email</div><div class="v mono">{C.esc(user.get("email","—"))}</div></div>'
-            f'<div><div class="k">Role</div><div class="v">Clinician</div></div>'
+            f'<div><div class="k">Role</div><div class="v">{"Guest (demo)" if is_guest else "Clinician"}</div></div>'
             f'</div>', unsafe_allow_html=True)
         st.write("")
         st.markdown(

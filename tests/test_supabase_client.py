@@ -24,6 +24,43 @@ class SupabaseClientTests(unittest.TestCase):
         ):
             self.assertFalse(client_module.supabase_configured())
 
+    def test_malformed_or_placeholder_url_is_rejected(self) -> None:
+        fake_streamlit = SimpleNamespace(session_state={}, secrets={})
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
+                    "SUPABASE_KEY": "sb_publishable_example",
+                },
+                clear=False,
+            ),
+            patch.object(client_module, "st", fake_streamlit),
+            patch.object(client_module, "_load_env"),
+            patch.object(client_module, "create_client") as factory,
+        ):
+            self.assertFalse(client_module.supabase_configured())
+            with self.assertRaisesRegex(RuntimeError, "Project URL"):
+                client_module.get_supabase()
+
+        factory.assert_not_called()
+
+    def test_demo_setting_is_explicit_opt_in(self) -> None:
+        fake_streamlit = SimpleNamespace(session_state={}, secrets={})
+        with (
+            patch.dict(os.environ, {"ENABLE_DEMO_MODE": ""}, clear=False),
+            patch.object(client_module, "st", fake_streamlit),
+            patch.object(client_module, "_load_env"),
+        ):
+            self.assertFalse(client_module.setting_enabled("ENABLE_DEMO_MODE"))
+
+        with (
+            patch.dict(os.environ, {"ENABLE_DEMO_MODE": "true"}, clear=False),
+            patch.object(client_module, "st", fake_streamlit),
+            patch.object(client_module, "_load_env"),
+        ):
+            self.assertTrue(client_module.setting_enabled("ENABLE_DEMO_MODE"))
+
     def test_client_is_reused_only_within_one_streamlit_session(self) -> None:
         first_client = object()
         second_client = object()

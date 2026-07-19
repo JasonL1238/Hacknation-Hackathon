@@ -51,6 +51,11 @@ only in each visitor's Streamlit session and are not persisted.
    SUPABASE_KEY = "YOUR_PUBLISHABLE_KEY"
    ```
 
+   Copy only the URL itself into `SUPABASE_URL`. A DNS error such as
+   `nodename nor servname provided` means that hostname is misspelled or still
+   contains a placeholder. Re-copy the **Project URL** from Supabase rather than
+   using the dashboard URL.
+
 5. Click **Deploy**. The first build can take several minutes while Conda installs
    the pinned runtime. The first real genome analysis also provisions the compatible
    AMRFinderPlus database and can take longer than later analyses.
@@ -68,5 +73,15 @@ AMRFinder output are removed after success or failure.
 The app is an unaudited research demonstration. Do not upload protected health
 information or use its output to make clinical decisions.
 
-Supabase configuration is mandatory. If either required value is missing, the app
-fails closed with a configuration error; there is no guest or URL-based bypass.
+## Optional demo workspace
+
+To show a synthetic guest workspace in addition to Supabase sign-in, add this third
+Streamlit secret:
+
+```toml
+ENABLE_DEMO_MODE = "true"
+```
+
+The demo button creates only a temporary, session-isolated guest. There is no URL-based
+bypass. If demo mode is omitted or false, valid Supabase configuration is mandatory and
+the app fails closed when authentication is unavailable.

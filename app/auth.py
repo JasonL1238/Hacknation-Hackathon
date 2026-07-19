@@ -1,8 +1,8 @@
 """
 Authentication for BioShield AI.
 
-Email/password authentication via Supabase. Authentication configuration is
-mandatory; the application has no guest or unauthenticated workspace.
+Email/password authentication via Supabase, plus an explicitly enabled demo
+workspace for public research demonstrations. Demo mode never calls Supabase.
 
 The auth logic functions are backend-agnostic; a real IdP can replace the
 Supabase calls without changing the sign-in UI.
@@ -46,6 +46,26 @@ def supabase_available() -> bool:
     return supabase_configured()
 
 
+def supabase_unavailable_reason() -> str:
+    """Return a safe explanation suitable for the login/configuration UI."""
+
+    try:
+        import supabase  # noqa: F401
+    except Exception:
+        return "The Supabase Python package is not installed."
+    from app.supabase_client import supabase_configuration_error
+
+    return supabase_configuration_error() or "Supabase authentication is unavailable."
+
+
+def demo_mode_available() -> bool:
+    """Expose the synthetic guest workspace only when explicitly enabled."""
+
+    from app.supabase_client import setting_enabled
+
+    return setting_enabled("ENABLE_DEMO_MODE", default=False)
+
+
 # ─── session helpers ─────────────────────────────────────────────────────────
 def get_current_user() -> dict | None:
     return st.session_state.get("user")
@@ -53,6 +73,24 @@ def get_current_user() -> dict | None:
 
 def is_authenticated() -> bool:
     return get_current_user() is not None
+
+
+def is_guest() -> bool:
+    user = get_current_user()
+    return bool(user and user.get("is_guest"))
+
+
+def enter_guest_mode() -> None:
+    if not demo_mode_available():
+        raise RuntimeError("Demo mode is disabled for this deployment.")
+    st.session_state["user"] = {
+        "id": "guest",
+        "email": "demo.clinician@bioshield.ai",
+        "user_metadata": {"full_name": "Dr. Demo Clinician"},
+        "is_guest": True,
+    }
+    st.session_state["session"] = None
+    st.session_state["access_token"] = None
 
 
 def _set_session(user: dict, session: dict) -> None:
@@ -63,7 +101,7 @@ def _set_session(user: dict, session: dict) -> None:
 
 def _clear_session() -> None:
     for key in ("user", "session", "access_token", "gf_store",
-                "route", "route_params",
+                "guest_patients", "guest_records", "route", "route_params",
                 "_pdf_done", "_pdf_msg", "_clear_new_patient", "wizard"):
         st.session_state.pop(key, None)
     from app.supabase_client import clear_supabase_client
@@ -72,6 +110,33 @@ def _clear_session() -> None:
 
 
 # ─── email/password authentication (lazy) ────────────────────────────────────
+def _friendly_auth_error(error: Exception) -> str:
+    """Translate low-level DNS failures into a useful configuration message."""
+
+    current: BaseException | None = error
+    seen: set[int] = set()
+    messages: list[str] = []
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        messages.append(str(current).lower())
+        current = current.__cause__ or current.__context__
+    combined = " ".join(messages)
+    dns_markers = (
+        "nodename nor servname",
+        "name or service not known",
+        "name resolution",
+        "getaddrinfo",
+        "temporary failure in name resolution",
+    )
+    if any(marker in combined for marker in dns_markers):
+        return (
+            "Could not find the Supabase server. Check SUPABASE_URL in Streamlit "
+            "Secrets and copy the Project URL exactly; it should look like "
+            "https://your-project-ref.supabase.co."
+        )
+    return str(error)
+
+
 def sign_up(email: str, password: str, full_name: str) -> tuple[bool, str]:
     try:
         response = _supabase().auth.sign_up({
@@ -90,7 +155,7 @@ def sign_up(email: str, password: str, full_name: str) -> tuple[bool, str]:
     except _auth_error_cls() as e:
         return False, str(e)
     except Exception as e:  # noqa: BLE001
-        return False, str(e)
+        return False, _friendly_auth_error(e)
 
 
 def sign_in(email: str, password: str) -> tuple[bool, str]:
@@ -104,14 +169,15 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
     except _auth_error_cls() as e:
         return False, str(e)
     except Exception as e:  # noqa: BLE001
-        return False, str(e)
+        return False, _friendly_auth_error(e)
 
 
 def sign_out() -> None:
-    try:
-        _supabase().auth.sign_out()
-    except Exception:
-        pass
+    if not is_guest():
+        try:
+            _supabase().auth.sign_out()
+        except Exception:
+            pass
     _clear_session()
 
 
@@ -183,6 +249,9 @@ html, body, [data-testid="stAppViewContainer"] { height:100vh !important; overfl
 .gf-secnote { display:flex; align-items:center; gap:8px; font-size:.76rem; color:var(--gf-muted);
   background:var(--gf-surface-2); border:1px solid var(--gf-border); border-radius:var(--gf-r); padding:9px 12px; margin-top:14px; }
 .gf-secnote .si { color:var(--gf-work); flex:none; }
+.gf-orline { display:flex; align-items:center; gap:12px; color:var(--gf-faint); font-size:.72rem;
+  text-transform:uppercase; letter-spacing:.08em; margin:14px 0 10px; }
+.gf-orline::before, .gf-orline::after { content:""; flex:1; height:1px; background:var(--gf-border); }
 </style>
 """
 
@@ -232,6 +301,10 @@ def render_login_page() -> None:
                     '<div class="lead">Access your clinical research workspace.</div>',
                     unsafe_allow_html=True)
 
+        auth_ready = supabase_available()
+        if not auth_ready:
+            st.warning(supabase_unavailable_reason())
+
         tab_login, tab_register = st.tabs(["Sign in", "Create account"])
 
         with tab_login:
@@ -239,7 +312,7 @@ def render_login_page() -> None:
                 email = st.text_input("Work email", placeholder="you@hospital.org")
                 password = st.text_input("Password", type="password", placeholder="••••••••")
                 submitted = st.form_submit_button("Sign in", use_container_width=True,
-                                                  type="primary")
+                                                  type="primary", disabled=not auth_ready)
                 if submitted:
                     if not email or not password:
                         st.error("Please enter both email and password.")
@@ -257,7 +330,7 @@ def render_login_page() -> None:
                 reg_pw = c1.text_input("Password", type="password")
                 reg_pw2 = c2.text_input("Confirm", type="password")
                 if st.form_submit_button("Create account", use_container_width=True,
-                                         type="primary"):
+                                         type="primary", disabled=not auth_ready):
                     if not (reg_email and reg_pw and reg_name):
                         st.error("Please complete all fields.")
                     elif reg_pw != reg_pw2:
@@ -269,6 +342,13 @@ def render_login_page() -> None:
                         (st.success if ok else st.error)(msg)
                         if ok and is_authenticated():
                             st.rerun()
+
+        if demo_mode_available():
+            st.markdown('<div class="gf-orline">or</div>', unsafe_allow_html=True)
+            if st.button("Continue to demo workspace", use_container_width=True,
+                         icon=":material/science:"):
+                enter_guest_mode()
+                st.rerun()
 
         st.markdown(
             '<div class="gf-secnote"><span class="si">'

@@ -128,9 +128,10 @@ def render_sidebar(user: dict) -> None:
         meta = user.get("user_metadata", {})
         name = meta.get("full_name") or user.get("email", "Clinician")
         from app.ui.components import initials
+        role = "Guest · demo session" if user.get("is_guest") else "Clinician"
         st.markdown(
             f'<div class="gf-userbox"><div class="av">{initials(name)}</div>'
-            f'<div><div class="nm">{name}</div><div class="rl">Clinician</div></div></div>',
+            f'<div><div class="nm">{name}</div><div class="rl">{role}</div></div></div>',
             unsafe_allow_html=True,
         )
         if st.button("Sign out", key="btn_signout", use_container_width=True,

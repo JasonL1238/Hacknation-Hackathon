@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import os
+from urllib.parse import urlsplit
 
 import streamlit as st
 from supabase import Client, create_client
@@ -46,8 +47,49 @@ def get_setting(name: str, default: str = "") -> str:
     return str(value).strip()
 
 
+def setting_enabled(name: str, *, default: bool = False) -> bool:
+    """Read a boolean setting from Streamlit Secrets or the environment."""
+
+    value = get_setting(name)
+    if not value:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def supabase_configuration_error() -> str | None:
+    """Return a safe, actionable configuration error, or ``None`` if valid."""
+
+    url = get_setting("SUPABASE_URL")
+    key = get_setting("SUPABASE_KEY")
+    if not url or not key:
+        return (
+            "SUPABASE_URL and SUPABASE_KEY are required for account sign-in. "
+            "Add them to Streamlit Secrets, or enable the optional demo mode."
+        )
+
+    parts = urlsplit(url)
+    if (
+        parts.scheme not in {"http", "https"}
+        or not parts.hostname
+        or parts.username
+        or parts.password
+        or any(token in url.upper() for token in ("YOUR_PROJECT", "<PROJECT", ">"))
+    ):
+        return (
+            "SUPABASE_URL is invalid. Copy the Project URL from Supabase Project "
+            "Settings; it should look like https://your-project-ref.supabase.co."
+        )
+
+    if any(token in key.upper() for token in ("YOUR_PUBLISHABLE", "YOUR_ANON", "<KEY", ">")):
+        return (
+            "SUPABASE_KEY still contains a placeholder. Copy the publishable or "
+            "legacy anon key from Supabase Project Settings → API Keys."
+        )
+    return None
+
+
 def supabase_configured() -> bool:
-    return bool(get_setting("SUPABASE_URL") and get_setting("SUPABASE_KEY"))
+    return supabase_configuration_error() is None
 
 
 def _jwt_role(key: str) -> str | None:
@@ -75,11 +117,9 @@ def get_supabase() -> Client:
 
     url = get_setting("SUPABASE_URL")
     key = get_setting("SUPABASE_KEY")
-    if not url or not key:
-        raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_KEY must be set. Add them to Streamlit "
-            "Secrets or copy .env.example to .env for local use."
-        )
+    config_error = supabase_configuration_error()
+    if config_error:
+        raise RuntimeError(config_error)
     _validate_public_key(key)
 
     signature = (url, hashlib.sha256(key.encode("utf-8")).hexdigest())
