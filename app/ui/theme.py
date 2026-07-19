@@ -107,23 +107,7 @@ def _global_css() -> str:
 /* ── Reset Streamlit chrome ─────────────────────────────────────────── */
 [data-testid="stToolbar"], [data-testid="stDecoration"],
 #MainMenu, footer, [data-testid="stStatusWidget"] { display:none !important; }
-/* Header is flattened for a full-bleed look, but must NOT clip the "expand
-   sidebar" control that lives inside it — otherwise a collapsed sidebar can
-   never be reopened. Keep overflow visible and give the control a real,
-   fixed-position, clickable target. */
 [data-testid="stHeader"] { background:transparent; height:0; overflow:visible; }
-[data-testid="stExpandSidebarButton"] {
-  position:fixed !important; top:10px !important; left:10px !important;
-  width:auto !important; height:auto !important; overflow:visible !important;
-  z-index:1000000 !important; opacity:1 !important; visibility:visible !important;
-}
-[data-testid="stExpandSidebarButton"] button,
-[data-testid="stExpandSidebarButton"] > * {
-  width:2.3rem !important; height:2.3rem !important; min-width:2.3rem !important;
-  display:flex !important; align-items:center !important; justify-content:center !important;
-  background:var(--gf-nav) !important; color:#fff !important; border-radius:9px !important;
-  box-shadow:0 2px 8px rgba(15,30,58,.28) !important;
-}
 
 html { font-size:16px; }
 html, body, [class*="css"], .stApp, [data-testid="stAppViewContainer"] {
@@ -157,12 +141,20 @@ code, kbd { font-family:var(--gf-mono); font-size:.86em; }
 [data-testid="stHorizontalBlock"] { gap:.85rem; }
 hr { margin:.4rem 0; border-color:var(--gf-border); }
 
-/* ── Sidebar → deep navy nav rail ───────────────────────────────────── */
+/* ── Sidebar → deep navy nav rail (always on — collapsing is disabled) ─ */
 [data-testid="stSidebar"] {
   background:var(--gf-nav);
   border-right:1px solid var(--gf-nav-line);
   width:270px !important;
+  min-width:270px !important;
+  margin-left:0 !important;
+  transform:none !important;
+  visibility:visible !important;
 }
+/* Hide the native collapse control so the sidebar can't be dismissed. */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"] { display:none !important; }
 [data-testid="stSidebar"] > div { background:var(--gf-nav); }
 [data-testid="stSidebar"] .block-container { padding:18px 14px 14px; }
 [data-testid="stSidebar"] * { color:var(--gf-nav-ink); }
