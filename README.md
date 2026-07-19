@@ -54,43 +54,25 @@ Antibiotic-resistant infections are associated with **4.7 million deaths** annua
 
 ---
 
-## 🏆 Model Performance
+## Model Evaluation
 
-### Top Performing Models
+The implemented candidate is a calibrated soft ensemble of XGBoost,
+HistGradientBoosting, and L1 logistic regression. It is compared fairly with each base
+model across genotype, ESM-2, and DNABERT-2 feature setups.
 
-| Rank | Model | Overall Accuracy | Balanced Accuracy |
-|:---:|---|---|---|
-| 🥇 | **XGBoost** | **93.50%** | 90.70% |
-| 🥈 | HistGradientBoosting | 91.62% | 91.01% |
-| 🥉 | L1/Elastic-Net (Lasso) | 91.46% | 91.26% |
+Final performance is intentionally not hard-coded here. Run the duplicate-aware grouped
+evaluation and read `reports/soft_ensemble/model_comparison.csv`:
 
-### Recommended Production Model: Soft-Voting Ensemble
+```bash
+make split       # whole-genome Mash groups; requires the local raw FASTAs
+make ensemble    # grouped tuning, calibration, held-out evaluation
+```
 
-The top 3 models (XGBoost, HistGradientBoosting, L1/Elastic-Net) are combined via **soft-voting** into a robust, well-calibrated ensemble.
-
-**Why these three?**
-- **XGBoost** — Highest raw accuracy (93.50%)
-- **HistGradientBoosting** — Best balanced accuracy (91.01%)
-- **L1/Elastic-Net** — Strong regularization, interpretable feature selection (91.46%) raw accuracy
-
-| Model | Weight in Ensemble |
-|---|---|
-| XGBoost | 1.5 |
-| HistGradientBoosting | 1.0 |
-| L1/Elastic-Net | 0.8 |
-
-**Expected Performance:** ~94% accuracy with better calibration and generalization than any single model.
-
-### Per-Antibiotic Performance (Soft-Voting Ensemble)
-
-| Antibiotic | Accuracy | Balanced Acc | F1 Score | Brier Score |
-|---|---|---|---|---|
-| Gentamicin | 95.68% | 93.37% | 0.8800 | 0.0490 |
-| Cefoxitin | 95.77% | 95.73% | 0.9708 | 0.0438 |
-| Erythromycin | 91.61% | 92.30% | 0.9297 | 0.0793 |
-| Tetracycline | 89.57% | 87.63% | 0.8079 | 0.0676 |
-| Clindamycin | 84.62% | 84.44% | 0.8700 | 0.1175 |
-| Ciprofloxacin | 92.60% | 92.83% | 0.9288 | 0.0611 |
+All 2,542 genomes are retained, but near-identical genomes receive inverse-group weights
+so repeated lineages cannot dominate training or evaluation. Feature setup is selected
+using grouped out-of-fold Brier score inside train—not the test set. See
+[`models/23_soft_voting_ensemble.md`](models/23_soft_voting_ensemble.md) for paths,
+commands, and output definitions.
 
 ---
 
@@ -98,7 +80,7 @@ The top 3 models (XGBoost, HistGradientBoosting, L1/Elastic-Net) are combined vi
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Conda (recommended)
 - NCBI AMRFinderPlus
 
@@ -112,6 +94,7 @@ cd Hacknation-Hackathon
 # Create conda environment
 conda env create -f environment.yml
 conda activate genome-firewall
+python -m pip install -e .
 
 # Install AMRFinderPlus
 make amr-setup
@@ -132,9 +115,10 @@ streamlit run app/streamlit_app.py
 | `make annotate` | Run AMRFinderPlus on all genomes |
 | `make featurize` | Generate feature matrix |
 | `make split` | Create grouped train/cal/test splits |
-| `make train` | Train per-antibiotic models |
-| `make calibrate` | Calibrate confidence scores |
-| `make eval` | Evaluate models on held-out test set |
+| `make train` | Train the L2 baseline used by the app |
+| `make calibrate` | Calibrate the app baseline on the dedicated calibration split |
+| `make evaluate` | Evaluate the app baseline on held-out grouped test |
+| `make ensemble` | Train, calibrate, and evaluate the duplicate-aware soft ensemble |
 | `make all` | Run the complete pipeline |
 | `make app` | Launch Streamlit demo |
 
@@ -167,11 +151,7 @@ Hacknation-Hackathon/
 │   ├── featurize.py              # Feature extraction
 │   ├── split.py                  # Grouped split (de-dup)
 │   ├── labels.py                 # SIR/MIC → binary R/S
-│   ├── model_baseline.py         # Per-antibiotic training
-│   ├── calibrate.py              # Confidence calibration
-│   ├── nocall.py                 # No-call / OOD detection
-│   ├── target_gate.py            # Drug target gate
-│   ├── evaluate.py               # Metrics & evaluation
+│   ├── model_ensemble.py         # Duplicate-aware training/calibration/evaluation
 │   └── report.py                 # Structured report generation
 ├── environment.yml               # Conda environment
 ├── Makefile                      # Pipeline automation

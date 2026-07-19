@@ -42,11 +42,16 @@ One row per (genome_id, antibiotic). Intermediate "I" resolved per `labels.py` r
 
 ## 4. `data/processed/splits.json`  (produced by the split/modeling stage)
 ```json
-{ "1280.1234": {"split": "train", "cluster_id": 7},
-  "1280.5678": {"split": "test",  "cluster_id": 41} }
+{ "1280.1234": {"split": "train", "cluster_id": 7,
+                  "dedup_group_id": 12, "dedup_group_size": 3},
+  "1280.5678": {"split": "test",  "cluster_id": 41,
+                  "dedup_group_id": 99, "dedup_group_size": 1} }
 ```
 `split` ∈ {`train`, `cal`, `test`}. **Invariant:** every genome in a given `cluster_id`
 has the same `split` (no cluster spans splits — enforced by an assert in `split.py`).
+`dedup_group_id` identifies near-identical genomes from the stricter Mash threshold.
+Rows are retained; supervised training uses inverse labeled-group-size weights so repeated
+genomes do not dominate. `split_audit.json` records the distance method and group counts.
 
 ## 5. `db/drugs_saureus.csv`  (produced by data acquisition → consumed by modeling)
 | column | type | notes |
@@ -75,3 +80,17 @@ One dict per antibiotic (the app renders a list of these):
 Per-antibiotic and per-genetic-group: `balanced_accuracy`, `recall_R`, `recall_S`, `f1`,
 `auroc`, `pr_auc`, `brier`, `nocall_rate`, `accuracy_on_called`. Plus reliability &
 PR-curve PNGs in `reports/`.
+
+## 8. Soft-ensemble training outputs
+
+`python -m genome_firewall.model_ensemble` writes to `reports/soft_ensemble/`:
+
+- `model_comparison.csv`: weighted and ordinary test metrics for every antibiotic,
+  feature setup, base learner, and the soft ensemble.
+- `train_oof_feature_comparison.csv` and `selected_feature_setup.csv`: feature selection
+  evidence computed only from grouped out-of-fold predictions inside train.
+- `test_predictions.csv`, `per_cluster_metrics.csv`, `oof_model_disagreement.csv`,
+  `l1_coefficients.csv`, reliability plots, and `run_config.json`.
+
+Fitted artifacts are written to `data/processed/ensemble_models/` and are intentionally
+gitignored.

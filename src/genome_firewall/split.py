@@ -29,6 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.optimize import Bounds, LinearConstraint, milp
 from scipy.spatial.distance import pdist, squareform
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,7 @@ FEATURES_PATH = PROCESSED_DIR / "features.parquet"
 LABELS_PATH = PROCESSED_DIR / "labels.csv"
 BVBRC_GENOME_PATH = RAW_DIR / "BVBRC_genome.csv"
 SPLITS_PATH = PROCESSED_DIR / "splits.json"
+SPLIT_AUDIT_PATH = PROCESSED_DIR / "split_audit.json"
 
 # Exact-match only. With a ~144-dim binary AMR feature vector there is no principled
 # "near enough" threshold above zero the way there is for true ANI: any nonzero
@@ -149,27 +151,131 @@ def crosscheck_mlst(cluster_labels: np.ndarray, genome_ids: list[str], mlst: pd.
           f"MLST types are split across >1 cluster (possible over-fragmentation)")
 
 
-def assign_splits(cluster_labels: np.ndarray, min_heldout: int = MIN_HELDOUT_CLUSTERS):
-    """Greedy largest-cluster-first assignment: each cluster goes to whichever split
-    is furthest below its target share of genomes. Whole clusters only -- this never
-    splits a cluster to fix label balance, per the hard invariant in DATA_SPEC #4.
-    The smallest `min_heldout` clusters are excluded from train entirely so the
-    pipeline is forced to report performance on genuinely unseen genetic groups.
+def _cluster_label_summary(cluster_labels: np.ndarray, genome_ids: list[str]) -> pd.DataFrame:
+    labels = pd.read_csv(LABELS_PATH, dtype={"genome_id": str})
+    labels = labels[labels["genome_id"].isin(genome_ids)].copy()
+    labels["stratum"] = labels["antibiotic"] + "__" + labels["label"]
+    strata = pd.crosstab(labels["genome_id"], labels["stratum"]).reindex(genome_ids, fill_value=0)
+    strata["genome_count"] = 1
+    strata["cluster_id"] = cluster_labels
+    return strata.groupby("cluster_id").sum()
+
+
+def assign_splits(
+    cluster_labels: np.ndarray,
+    genome_ids: list[str],
+    min_heldout: int = MIN_HELDOUT_CLUSTERS,
+):
+    """Assign whole clusters with a small mixed-integer stratification problem.
+
+    The objective minimizes normalized absolute deviation from the requested genome
+    and per-antibiotic R/S counts.  Genome counts receive extra weight and a hard
+    tolerance.  This avoids a size-perfect split whose calibration partition contains
+    too few examples of a clinically important class.  No individual genome is moved
+    outside its Mash/ANI cluster to improve balance.
     """
-    sizes = pd.Series(cluster_labels).value_counts()  # cluster_id -> genome count
-    n_total = int(sizes.sum())
-    targets = {split: frac * n_total for split, frac in TARGET_SPLIT_FRACTIONS.items()}
-    current = {"train": 0, "cal": 0, "test": 0}
+    summary = _cluster_label_summary(cluster_labels, genome_ids)
+    cluster_ids = list(summary.index)
+    split_names = list(TARGET_SPLIT_FRACTIONS)
+    fractions = np.array([TARGET_SPLIT_FRACTIONS[name] for name in split_names])
+    dimensions = list(summary.columns)
+    n_clusters = len(cluster_ids)
+    n_splits = len(split_names)
+    n_dimensions = len(dimensions)
+    n_assignment = n_clusters * n_splits
+    n_variables = n_assignment + n_splits * n_dimensions
 
-    n_heldout = min(min_heldout, max(0, len(sizes) - 3))
-    heldout_cluster_ids = set(sizes.sort_values(ascending=True).index[:n_heldout])
+    objective = np.zeros(n_variables)
+    for split_index, fraction in enumerate(fractions):
+        for dimension_index, dimension in enumerate(dimensions):
+            target = float(summary[dimension].sum() * fraction)
+            weight = 12.0 if dimension == "genome_count" else 1.0
+            objective[n_assignment + split_index * n_dimensions + dimension_index] = (
+                weight / max(target, 1.0)
+            )
 
-    assignment = {}
-    for cluster_id, size in sizes.sort_values(ascending=False).items():
-        allowed = ["cal", "test"] if cluster_id in heldout_cluster_ids else ["train", "cal", "test"]
-        best = min(allowed, key=lambda s: current[s] / targets[s] if targets[s] else float("inf"))
-        assignment[cluster_id] = best
-        current[best] += size
+    rows: list[np.ndarray] = []
+    lower: list[float] = []
+    upper: list[float] = []
+    for cluster_index in range(n_clusters):
+        row = np.zeros(n_variables)
+        row[cluster_index * n_splits : (cluster_index + 1) * n_splits] = 1
+        rows.append(row)
+        lower.append(1)
+        upper.append(1)
+
+    size_tolerance = max(5, round(0.012 * len(genome_ids)))
+    for split_index, fraction in enumerate(fractions):
+        assignment_indices = np.arange(n_clusters) * n_splits + split_index
+        for dimension_index, dimension in enumerate(dimensions):
+            values = summary[dimension].to_numpy(dtype=float)
+            target = float(values.sum() * fraction)
+            deviation_index = n_assignment + split_index * n_dimensions + dimension_index
+
+            # assignment total - deviation <= target
+            row = np.zeros(n_variables)
+            row[assignment_indices] = values
+            row[deviation_index] = -1
+            rows.append(row)
+            lower.append(-np.inf)
+            upper.append(target)
+
+            # -assignment total - deviation <= -target
+            row = np.zeros(n_variables)
+            row[assignment_indices] = -values
+            row[deviation_index] = -1
+            rows.append(row)
+            lower.append(-np.inf)
+            upper.append(-target)
+
+            hard_bound = np.zeros(n_variables)
+            hard_bound[assignment_indices] = values
+            rows.append(hard_bound)
+            if dimension == "genome_count":
+                lower.append(target - size_tolerance)
+                upper.append(target + size_tolerance)
+            else:
+                # A broad floor prevents nearly empty R/S calibration strata while
+                # leaving the optimizer freedom to respect indivisible clusters.
+                lower.append(min(target, max(2.0, 0.45 * target)))
+                upper.append(np.inf)
+
+    n_heldout = min(min_heldout, max(0, n_clusters - n_splits))
+    heldout_cluster_ids = set(summary["genome_count"].nsmallest(n_heldout).index)
+    for cluster_id in heldout_cluster_ids:
+        row = np.zeros(n_variables)
+        row[cluster_ids.index(cluster_id) * n_splits + split_names.index("train")] = 1
+        rows.append(row)
+        lower.append(0)
+        upper.append(0)
+
+    result = milp(
+        objective,
+        integrality=np.r_[np.ones(n_assignment), np.zeros(n_variables - n_assignment)],
+        bounds=Bounds(
+            np.zeros(n_variables),
+            np.r_[np.ones(n_assignment), np.full(n_variables - n_assignment, np.inf)],
+        ),
+        constraints=LinearConstraint(np.array(rows), np.array(lower), np.array(upper)),
+        options={"time_limit": 60},
+    )
+    if not result.success:
+        raise RuntimeError(f"could not construct a label-balanced grouped split: {result.message}")
+
+    matrix = result.x[:n_assignment].reshape(n_clusters, n_splits)
+    assignment = {
+        cluster_id: split_names[int(np.argmax(matrix[index]))]
+        for index, cluster_id in enumerate(cluster_ids)
+    }
+    current = {
+        split: int(
+            summary.loc[[cid for cid in cluster_ids if assignment[cid] == split], "genome_count"].sum()
+        )
+        for split in split_names
+    }
+    targets = {
+        split: float(TARGET_SPLIT_FRACTIONS[split] * len(genome_ids)) for split in split_names
+    }
     return assignment, heldout_cluster_ids, current, targets
 
 
@@ -179,6 +285,15 @@ def assert_no_cluster_spans_splits(splits: dict) -> None:
         cluster_to_splits.setdefault(info["cluster_id"], set()).add(info["split"])
     bad = {cid: s for cid, s in cluster_to_splits.items() if len(s) > 1}
     assert not bad, f"leakage: cluster(s) spanning multiple splits: {bad}"
+
+
+def assert_no_dedup_group_spans_splits(splits: dict) -> None:
+    """A stricter invariant for the near-identical-genome groups."""
+    dedup_to_splits: dict[int, set[str]] = {}
+    for info in splits.values():
+        dedup_to_splits.setdefault(info["dedup_group_id"], set()).add(info["split"])
+    bad = {gid: values for gid, values in dedup_to_splits.items() if len(values) > 1}
+    assert not bad, f"leakage: dedup group(s) spanning multiple splits: {bad}"
 
 
 def label_balance_report(splits: dict) -> pd.DataFrame:
@@ -204,25 +319,51 @@ def run(cluster_threshold: float | None = None, min_heldout: int = MIN_HELDOUT_C
     n_clusters = len(set(cluster_labels))
 
     mlst = load_mlst(genome_ids)
-    assignment, heldout_cluster_ids, current, targets = assign_splits(cluster_labels, min_heldout)
+    assignment, heldout_cluster_ids, current, targets = assign_splits(
+        cluster_labels, genome_ids, min_heldout
+    )
 
+    dedup_sizes = pd.Series(dedup_labels).value_counts().to_dict()
     splits = {
-        gid: {"split": assignment[cid], "cluster_id": int(cid)}
-        for gid, cid in zip(genome_ids, cluster_labels)
+        gid: {
+            "split": assignment[cid],
+            "cluster_id": int(cid),
+            "dedup_group_id": int(did),
+            "dedup_group_size": int(dedup_sizes[did]),
+        }
+        for gid, cid, did in zip(genome_ids, cluster_labels, dedup_labels)
     }
     assert_no_cluster_spans_splits(splits)
+    assert_no_dedup_group_spans_splits(splits)
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     SPLITS_PATH.write_text(json.dumps(splits, indent=2, sort_keys=True))
+    audit = {
+        "distance_method": method,
+        "dedup_threshold": dedup_threshold,
+        "cluster_threshold": cluster_threshold,
+        "n_genomes_retained": len(genome_ids),
+        "n_dedup_groups": n_dedup_groups,
+        "n_rows_in_excess_of_one_per_dedup_group": n_collapsed,
+        "n_clusters": n_clusters,
+        "assignment_method": "mixed-integer whole-cluster label stratification",
+        "split_counts": current,
+        "target_counts": targets,
+        "heldout_cluster_ids": sorted(int(x) for x in heldout_cluster_ids),
+        "all_rows_retained": True,
+        "recommended_training_weight": "1 / labeled genomes in dedup_group_id",
+    }
+    SPLIT_AUDIT_PATH.write_text(json.dumps(audit, indent=2, sort_keys=True))
 
     print("=" * 70)
     print("SPLIT SUMMARY -- paste into docs/DECISIONS.md")
     print("=" * 70)
     print(f"distance method: {method}")
     print(f"dedup threshold: {dedup_threshold}  |  cluster threshold: {cluster_threshold}")
-    print(f"genomes: {len(genome_ids)} -> {n_dedup_groups} unique dedup groups "
-          f"({n_collapsed} genomes collapsed as near-/exact-duplicates)")
+    print(f"genomes retained: {len(genome_ids)}; {n_dedup_groups} unique dedup groups "
+          f"({n_collapsed} rows beyond one representative; no rows deleted)")
     print(f"genetic clusters: {n_clusters}  |  held out entirely from train: {len(heldout_cluster_ids)}")
+    print("assignment method: mixed-integer whole-cluster R/S stratification")
     for split_name in ("train", "cal", "test"):
         n_genomes_split = sum(1 for v in splits.values() if v["split"] == split_name)
         n_clusters_split = len({v["cluster_id"] for v in splits.values() if v["split"] == split_name})
@@ -233,6 +374,7 @@ def run(cluster_threshold: float | None = None, min_heldout: int = MIN_HELDOUT_C
     print("per-antibiotic label balance by split:")
     print(label_balance_report(splits).to_string())
     print(f"wrote {SPLITS_PATH}")
+    print(f"wrote {SPLIT_AUDIT_PATH}")
 
 
 if __name__ == "__main__":

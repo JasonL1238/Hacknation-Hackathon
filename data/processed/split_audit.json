@@ -1,0 +1,29 @@
+{
+  "all_rows_retained": true,
+  "assignment_method": "mixed-integer whole-cluster label stratification",
+  "cluster_threshold": 0.002,
+  "dedup_threshold": 0.0002,
+  "distance_method": "mash",
+  "heldout_cluster_ids": [
+    3,
+    5,
+    7,
+    8,
+    9
+  ],
+  "n_clusters": 136,
+  "n_dedup_groups": 1460,
+  "n_genomes_retained": 2542,
+  "n_rows_in_excess_of_one_per_dedup_group": 1082,
+  "recommended_training_weight": "1 / labeled genomes in dedup_group_id",
+  "split_counts": {
+    "cal": 381,
+    "test": 381,
+    "train": 1780
+  },
+  "target_counts": {
+    "cal": 381.3,
+    "test": 381.3,
+    "train": 1779.3999999999999
+  }
+}

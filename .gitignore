@@ -8,6 +8,8 @@
 data/raw/
 data/interim/
 data/processed/models/
+data/processed/ensemble_models/
+reports/soft_ensemble/
 reports/*.png
 
 # Python

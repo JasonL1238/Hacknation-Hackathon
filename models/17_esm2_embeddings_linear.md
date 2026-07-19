@@ -1,5 +1,15 @@
 # ESM-2 Protein Embeddings + Linear/GBM Head
 
+## Handoff to the implemented ensemble
+
+Use this file/notebook only to generate the frozen per-genome vectors. Save the final
+DataFrame to `data/processed/esm2_embeddings.parquet` with index `genome_id` and numeric
+columns `emb_0...emb_n`. Then run `python -m genome_firewall.model_ensemble`; it will
+automatically test `esm2_only` and `genotype_plus_esm2` with the same duplicate-aware
+L1/HistGradientBoosting/XGBoost protocol as `genotype_only`. Do not generate a separate
+random split or a second final head in the embedding notebook. Frozen ESM-2 vectors remain
+reusable when the supervised split changes.
+
 > **One-liner:** Embed each genome's AMRFinderPlus-flagged protein sequences with a frozen ESM-2 protein language model, mean-pool to one vector per genome, and train a simple logistic-regression or gradient-boosting head on the same grouped splits.
 > **Category:** sequence-DL ·
 > **Runs on:** Colab GPU (embed) → Colab/local CPU (head) ·
@@ -69,7 +79,9 @@ STAGE 1 (COLAB GPU) - compute embeddings:
 - Use the Hugging Face transformers ESM-2 checkpoints. Make the checkpoint a parameter and support facebook/esm2_t12_35M_UR50D, facebook/esm2_t30_150M_UR50D, and facebook/esm2_t33_650M_UR50D.
 - For each genome, embed each flagged protein and MEAN-POOL across residues (mask padding) to get a per-protein vector, then MEAN-POOL across the genome's proteins to get ONE fixed-length vector per genome_id. Also implement max-pooling and attention-pooling as switchable options.
 - Batch on GPU (cuda), use no_grad (frozen backbone, no fine-tuning), and handle long sequences by truncating to the model max length. This is the only GPU-heavy step.
-- Save the result as a DataFrame indexed by genome_id (embedding columns emb_0..emb_d) to parquet so it can be downloaded and reused. Cache so re-runs are cheap.
+- Save the result as `data/processed/esm2_embeddings.parquet`, indexed by genome_id
+  (embedding columns emb_0..emb_d), so the implemented ensemble finds it automatically.
+  Cache it so re-runs are cheap.
 
 STAGE 2 (LOCAL CPU) - head + calibration + evaluation:
 1. Load the cached per-genome embeddings, labels.csv, splits.json, drugs_saureus.csv. Support three feature compositions: embeddings only, presence/absence only, and concat(embeddings, presence/absence) - make it a parameter and run all three.

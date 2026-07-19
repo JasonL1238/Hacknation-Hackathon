@@ -185,13 +185,88 @@ decision and why it doesn't hold.
 - Evidence: after fix, demo genomes score 14/16 on called predictions; cefoxitin+mecA →
   fail (conf 1.00); no-calls now occur only for genuinely in-band probabilities.
 
+### 2026-07-18 — Whole-genome Mash duplicate audit + duplicate-aware training policy
+- What: reran `split.py` with Mash 2.3 over all 2,542 local genome FASTAs. The output now
+  records both a strict near-duplicate `dedup_group_id` (Mash distance ≤ 0.0002) and a
+  broader lineage `cluster_id` (distance ≤ 0.002). No rows are deleted. Supervised
+  training weights each labeled member by `1 / labeled dedup-group size`, so each
+  near-identical family contributes approximately one vote. Whole clusters are assigned
+  with mixed-integer R/S stratification; no genome is moved outside its cluster to improve
+  label balance.
+- Why: identical AMR feature profiles are not proof that two full genomes are duplicates,
+  while the prior size-only cluster allocation left only 7 resistant clindamycin examples
+  in calibration. Whole-genome similarity is the appropriate lineage signal, inverse-group
+  weighting prevents repeated lineages from dominating, and cluster-level label balancing
+  makes calibration/evaluation usable without violating the leakage boundary.
+- Adversarial case considered: deleting one row per AMR profile would shrink 2,542 rows to
+  748 and discard real biological/phenotype variation. Keeping every row without weights
+  would let large near-identical families dominate. The chosen middle path retains all
+  observations, keeps duplicate families wholly inside one split, and reports both ordinary
+  and duplicate-weighted metrics. Mash thresholds remain modeling assumptions, so
+  `split_audit.json` records them and final claims must include sensitivity checks.
+- Evidence: Mash found 1,460 strict dedup groups (1,082 rows beyond one representative)
+  and 136 broader clusters. Final split: train 1,780 genomes/56 clusters, calibration 381/42,
+  test 381/38. No cluster or dedup group spans splits. Every antibiotic has both classes in
+  every split; calibration R counts are cefoxitin 193, ciprofloxacin 135, clindamycin 111,
+  erythromycin 175, gentamicin 65, and tetracycline 78.
+
+### 2026-07-18 — Duplicate-aware three-model soft ensemble implementation
+- What: implemented `genome_firewall.model_ensemble`: one L1 logistic regression,
+  HistGradientBoosting, XGBoost, and uniform probability-average ensemble per antibiotic
+  and feature setup. Hyperparameters and feature setup use only duplicate-weighted,
+  cluster-grouped train OOF Brier; models refit on train, a preselected sigmoid/Platt map
+  fits on cal, and test is evaluated once. Frozen ESM-2/DNABERT-2 Parquets are optional;
+  scaling is inside each fold. Outputs include ordinary + duplicate-weighted metrics,
+  per-cluster metrics, predictions, OOF disagreement, L1 coefficients, reliability plots,
+  selection evidence, run config, and fitted artifacts.
+- Why: uniform voting has less overfitting surface than stacking or test-selected weights;
+  Platt calibration is safer than isotonic for the smaller calibration strata. Reporting
+  every base learner prevents the ensemble from being declared best merely because it was
+  planned in advance. Frozen label-free embeddings can be reused while every supervised
+  head/calibrator is retrained after this split change.
+- Adversarial case considered: XGBoost and HistGradientBoosting may be too correlated for
+  voting to help; inverse duplicate weights reduce effective sample size; DNA embeddings
+  may encode lineage rather than mechanism; and test-based feature selection would leak.
+  Mitigations are OOF disagreement/correlation, ordinary and weighted sensitivity metrics,
+  whole-Mash-cluster folds, and train-OOF-only setup selection. The ensemble must lose to a
+  simpler base learner when its Brier is worse. A real cefoxitin smoke run demonstrated
+  this behavior: HistGradientBoosting Brier 0.1218 vs ensemble 0.1506; these quick-smoke
+  values are validation evidence, not final model claims.
+- Evidence/checklist: (1) leakage: 0/136 clusters and 0/1,460 dedup groups span splits;
+  grouped OOF is inside train. (2) calibration: fitted only on cal; held-out Brier and
+  reliability PNG emitted. (3) target gate: this module emits evaluation probabilities,
+  not user-facing "likely to work" reports; the report/inference layer must apply the
+  target gate before any S wording. (4) causation: L1 output is labeled statistical-only
+  and catalog markers are separately flagged. (5) generalization: per-cluster test CSV is
+  mandatory. (6) uncertainty: probability-band no-call rate and accuracy-on-called are
+  reported; OOD/target-gate abstention remains an inference-layer requirement. (7) scope:
+  prediction of existing resistance only; no organism design or modification.
+
+### 2026-07-18 — Baseline metrics rerun after Mash split replacement
+- What: reran `make train calibrate evaluate` after replacing the AMR-profile split with
+  the whole-genome Mash split. Updated `data/processed/metrics.json` now matches the
+  committed `splits.json`; old fitted models and old metrics must not be reused.
+- Why: changing train/cal/test invalidates every supervised model, calibrator, and held-out
+  metric. Keeping the previous macro Brier 0.080 beside the new split would be a silent,
+  misleading evaluation mismatch.
+- Adversarial case considered: the new scores are substantially worse for ciprofloxacin
+  and tetracycline, so it is tempting to preserve the earlier numbers. That drop is exactly
+  the evidence that the Mash split is harder and more honest; no hyperparameter or split
+  changes were made after viewing test. The app baseline remains unweighted and should be
+  treated as a comparison model; the new ensemble reports duplicate-weighted sensitivity
+  metrics in addition.
+- Evidence: new held-out baseline macro balanced accuracy 0.7905, AUROC 0.8818, PR-AUC
+  0.8002, Brier 0.1361, no-call rate 0.0197. Per-antibiotic and per-cluster results are in
+  the regenerated `data/processed/metrics.json`.
+
 ### Open questions to answer before "done"
 - [x] Leakage: proof no cluster spans train/test (assert output + de-dup count). (2026-07-18, `split.py`)
-- [x] Calibration: reliability plot on held-out + Brier reported. (2026-07-18, `evaluate.py`; macro Brier 0.080, `reports/reliability.png`)
+- [x] Calibration: reliability plot on held-out + Brier reported. (rerun after Mash split:
+  macro Brier 0.1361, `reports/reliability.png`)
 - [x] Honesty: no "likely to work" from marker-absence without target present. (2026-07-18, `report.py` gate + no-call logic; gate bug fixed)
 - [x] Causation: no SHAP/coefficient presented as biological cause. (`report.py` labels category-ii features "NOT proven causal")
 - [x] Generalization: metrics on unseen genetic groups reported. (2026-07-18, `metrics.json` per_group; every test cluster is unseen — clindamycin/tetracycline show the drop)
 - [x] Uncertainty: no-call rate + accuracy-on-called reported per drug. (2026-07-18, `metrics.json`)
-- [ ] Scope: nothing drifts toward organism design. (predict/explain only — holds)
+- [x] Scope: nothing drifts toward organism design. (predict/explain only — holds)
 - [x] Antibiotic choice + label counts justified. (2026-07-18 log entry)
 - [x] Split thresholds justified. (2026-07-18, `split.py` log entry above)

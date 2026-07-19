@@ -15,7 +15,8 @@ confirmed by standard laboratory testing.
 ## Data
 - Source: BV-BRC, lab-measured AST only. Genome count / label counts: _(fill)_
 - Split: grouped by genetic cluster (Mash/skani), whole clusters per split, unseen groups
-  held out. De-dup collapsed _(N)_ near-identical genomes.
+  held out. All rows retained; _(N)_ near-identical Mash groups are controlled with
+  inverse-group training/evaluation weights.
 
 ## Performance (held-out grouped-test split)
 _(balanced accuracy, recall_R, recall_S, F1, AUROC, PR-AUC per drug, Brier, no-call rate,

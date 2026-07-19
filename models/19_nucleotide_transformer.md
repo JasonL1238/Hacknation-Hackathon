@@ -1,5 +1,17 @@
 # Nucleotide / Genomic Language Model Embeddings
 
+## Handoff to the implemented ensemble
+
+For DNABERT-2, the compact sequence inputs already prepared locally are
+`data/interim/dnabert2_regions/amr_regions.fasta` and `manifest.csv`; upload those two
+files to Kaggle rather than the 6.8 GB raw-genome folder. Use this file/notebook only to
+generate one frozen vector per genome. Save the final DataFrame to
+`data/processed/dnabert2_embeddings.parquet` with index `genome_id` and numeric columns
+`emb_0...emb_n`. Then run `python -m genome_firewall.model_ensemble`; it automatically
+tests `dnabert2_only` and `genotype_plus_dnabert2` with the same duplicate-aware protocol
+as every other setup. Do not create a new random split or train a separate final head in
+the embedding notebook.
+
 > **One-liner:** Embed gene and contig DNA regions with a genomic language model (InstaDeep Nucleotide Transformer or DNABERT-2), pool to one vector per genome, and train a simple head on the same grouped splits.
 > **Category:** sequence-DL (DNA) ·
 > **Runs on:** Colab GPU (embed) → Colab/local CPU (head) ·
@@ -13,7 +25,11 @@ A DNA-level language model sees nucleotide context that a protein model cannot: 
 Treat this as optional and lowest-priority among the sequence models. Only run it after the protein-embedding route (file 17) is in place, and only to answer the specific question "does nucleotide context add signal beyond the flagged proteins?" Skip it as a production candidate unless it beats the logistic-regression baseline on held-out grouped-test Brier and balanced accuracy — and, as with the other sequence models, **report "no gain over the protein embeddings / no gain over the baseline" as a valid, honest, useful result**, since a negative result here justifies not spending GPU budget on DNA models. It is heavier per genome than protein embeddings (long DNA context) and no more interpretable, so the bar for keeping it is high.
 
 ## Data interface (the contract this code must respect)
-- DNA inputs are `data/raw/<genome_id>.fna`; AMR-hit coordinates are in `data/interim/amrfinder/<genome_id>.tsv`. On the GPU runtime, extract relevant regions from rows with `Type == AMR` (optionally wider contigs), tokenize with the genomic LM's tokenizer (k-mer or BPE), embed, and pool to ONE vector per `genome_id`. Save the per-genome embedding matrix (index = `genome_id`) to disk and download it.
+- GPU-ready DNA inputs are `data/interim/dnabert2_regions/amr_regions.fasta` and
+  `manifest.csv`. The raw `.fna` genomes and AMRFinder `.tsv` coordinates are needed only
+  to regenerate those compact files with `scripts/prepare_dnabert2_regions.py`; they are
+  not needed on Kaggle after the compact files have been uploaded. Tokenize the prepared
+  regions, embed them, and pool to one vector per `genome_id`.
 - Locally: read the cached embeddings as X. Optionally concatenate with `data/processed/features.parquet` presence/absence columns and/or the protein embeddings from file 17; test compositions.
 - Read `data/processed/labels.csv`, filter to one antibiotic at a time, map `label` R→1, S→0.
 - Read `data/processed/splits.json` for grouped train/cal/test and `cluster_id`; never re-split randomly. Fit the head on **train** only, calibrate on **cal** only, report metrics on **test** only.
@@ -63,13 +79,18 @@ DATA CONTRACT (files already exist on disk):
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant/likely-to-fail, S = susceptible/likely-to-work), source, method. One row per (genome_id, antibiotic). About 4-6 antibiotics (e.g. erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
 - data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name. Used for a deterministic target gate.
-- SEQUENCE_ROOT/data/raw/<genome_id>.fna: assembled nucleotide contigs, one FASTA per genome. SEQUENCE_ROOT/data/interim/amrfinder/<genome_id>.tsv: matching AMRFinderPlus output with `Contig id`, 1-based inclusive `Start`/`Stop`, `Strand`, and `Type`. Use rows with `Type == AMR` for targeted regions and match TSV `Contig id` to the FASTA record ID exactly; optionally tile wider contigs.
+- SEQUENCE_ROOT/data/interim/dnabert2_regions/amr_regions.fasta and manifest.csv: compact
+  targeted AMR DNA regions already extracted locally from matching raw genomes and
+  AMRFinder coordinates. Use these directly on Kaggle. Raw `.fna`/`.tsv` files are needed
+  only if regenerating this compact dataset.
 
 STAGE 1 (COLAB GPU) - compute embeddings:
 - Use a Hugging Face genomic LM. Make the checkpoint a parameter and support InstaDeepAI Nucleotide Transformer variants and DNABERT-2 (different tokenizers: k-mer vs BPE, different context lengths).
 - Genomic LMs have HARD context limits and you cannot embed a whole genome at once: implement WINDOW/TILING (window size + stride as parameters), embed each window, and pool windows to ONE fixed-length vector per genome_id (mean/max/attention pooling switchable). Ensure the flagged-resistance regions actually fall inside the embedded windows and say so.
 - Batch on GPU (cuda), use no_grad (frozen backbone). Document the GPU memory ceiling and use mixed precision / truncation as needed. This is the GPU-heavy step.
-- Save the result as a DataFrame indexed by genome_id (embedding columns) to parquet so it can be downloaded and reused. Cache so re-runs are cheap.
+- Save the result as `data/processed/dnabert2_embeddings.parquet`, indexed by genome_id
+  (numeric embedding columns), so the implemented ensemble finds it automatically. Cache
+  it so re-runs are cheap.
 
 STAGE 2 (LOCAL CPU) - head + calibration + evaluation:
 1. Load the cached per-genome DNA embeddings, labels.csv, splits.json, drugs_saureus.csv. Support feature compositions: DNA-embeddings only, concat with presence/absence, and (if available) concat with ESM-2 protein embeddings - make it a parameter and run all of them.
