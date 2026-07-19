@@ -234,4 +234,4 @@ This is a research prototype for demonstration purposes. Predictions are based o
 
 ---
 
-<p align="center">Built with ❤️ at Hack-Nation 2026</p>
+<p align="center">Built at Hack-Nation 2026</p>
