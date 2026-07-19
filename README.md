@@ -72,9 +72,7 @@ PYTHONPATH=src python -m genome_firewall.model_ensemble \
 
 All 2,542 genomes are retained, but near-identical genomes receive inverse-group weights
 so repeated lineages cannot dominate training or evaluation. Feature setup is selected
-using grouped out-of-fold Brier score inside train—not the test set. See
-[`models/23_soft_voting_ensemble.md`](models/23_soft_voting_ensemble.md) for paths,
-commands, and output definitions.
+using grouped out-of-fold Brier score inside train—not the test set. 
 
 The deployed model is XGBoost-only at the project owner's direction. `make final-train`
 tunes one XGBoost classifier per antibiotic and learns sigmoid calibration from grouped
