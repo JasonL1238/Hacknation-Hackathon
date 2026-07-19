@@ -27,6 +27,27 @@ for p in (ROOT, ROOT / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+
+# ─── secrets → environment ───────────────────────────────────────────────────
+# Streamlit does not automatically expose secrets.toml (or a .env) as environment
+# variables, so os.environ-based config such as OPENAI_API_KEY wouldn't be seen.
+# Bridge them here, once, regardless of the launch working directory.
+def _bridge_secrets_to_env() -> None:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / ".env")
+    except Exception:
+        pass
+    try:
+        for _k, _v in st.secrets.items():
+            if isinstance(_v, str):
+                os.environ.setdefault(_k, _v)
+    except Exception:
+        pass
+
+
+_bridge_secrets_to_env()
+
 st.set_page_config(
     page_title="Genome Firewall — Clinical AMR Intelligence",
     page_icon="🧬",

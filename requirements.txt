@@ -7,3 +7,6 @@ streamlit>=1.33
 supabase>=2.4
 python-dotenv
 pypdf
+# Optional: enables the flag-gated plain-language clinician summary. Inactive
+# unless OPENAI_API_KEY is set — the app runs fine without it.
+openai>=1.0
