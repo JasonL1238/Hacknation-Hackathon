@@ -5,10 +5,11 @@ in `data/raw/`, caching one TSV per genome under `data/interim/amrfinder/`. The
 `--organism` flag is mandatory: it unlocks S. aureus point-mutation detection (gyrA,
 grlA/parC, rpoB) and blaZ handling.
 
-AMRFinderPlus lives in a separate conda env `amr` (see scripts/setup_amrfinder.sh), so
-this module shells out via `conda run -n amr` rather than importing it.
+AMRFinderPlus may live directly in the active deployment environment or in the local
+separate conda env `amr` created by `scripts/setup_amrfinder.sh`.
 """
 import subprocess
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -21,9 +22,22 @@ ORGANISM = "Staphylococcus_aureus"
 THREADS_PER_JOB = 2
 
 
+def amrfinder_command() -> list[str]:
+    """Return a command prefix for local conda or container installations."""
+    direct = shutil.which("amrfinder")
+    if direct:
+        return [direct]
+    conda = shutil.which("conda")
+    if conda:
+        return [conda, "run", "-n", AMR_ENV, "amrfinder"]
+    raise RuntimeError(
+        "AMRFinderPlus is not installed. Create environment.yml or run `make amr-setup`."
+    )
+
+
 def amrfinder_db_version() -> str:
     out = subprocess.run(
-        ["conda", "run", "-n", AMR_ENV, "amrfinder", "--database_version"],
+        [*amrfinder_command(), "--database_version"],
         capture_output=True, text=True, check=True,
     ).stdout
     for line in out.splitlines():
@@ -39,7 +53,7 @@ def _annotate_one(fasta_path: Path) -> tuple[str, str | None]:
         return genome_id, None
     tmp_tsv = out_tsv.with_suffix(".tsv.partial")
     cmd = [
-        "conda", "run", "-n", AMR_ENV, "amrfinder",
+        *amrfinder_command(),
         "-n", str(fasta_path),
         "--organism", ORGANISM,
         "--plus",

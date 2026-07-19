@@ -1,1 +1,1 @@
-"""Genome Firewall — UI layer (design system, shell, components)."""
+"""BioShield AI — UI layer (design system, shell, components)."""

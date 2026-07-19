@@ -12,7 +12,7 @@ from app.ui import components as C
 def render(store, user) -> None:
     C.page_header(
         "Model information",
-        subtitle="What Genome Firewall covers, how confidence is calibrated, and where "
+        subtitle="What BioShield AI covers, how confidence is calibrated, and where "
                  "its limits are. Coverage is shown before every submission.",
         icon_name="cpu",
         crumbs=[("System", None), ("Model information", None)],
@@ -20,7 +20,7 @@ def render(store, user) -> None:
 
     prov = get_provider()
     C.stat_row([
-        C.stat_tile("Model version", "v0.1", "genome-firewall", "cpu"),
+        C.stat_tile("Model version", "v1", "XGBoost · genotype-only", "cpu"),
         C.stat_tile("Species", "1", "S. aureus (incl. MRSA)", "microscope"),
         C.stat_tile("Antibiotics", len(_DRUGS), "in current scope", "layers"),
         C.stat_tile("Provider", prov.name, "analysis backend", "database"),
@@ -50,22 +50,23 @@ def render(store, user) -> None:
         C.panel_open("Status", eyebrow="System", icon_name="activity")
         st.markdown(
             C.badge("Operational", "work", "check-circle") + " "
-            + C.badge("Demo / mock provider", "nocall", "flask"),
+            + C.badge(f"{prov.name.capitalize()} provider", "brand", "database"),
             unsafe_allow_html=True)
         st.markdown(
             f'<div class="gf-meta" style="margin-top:10px">'
-            f'<div><div class="k">Last model update</div><div class="v">2026-07-14</div></div>'
+            f'<div><div class="k">Last model update</div><div class="v">2026-07-19</div></div>'
             f'<div><div class="k">Species scope</div><div class="v"><em>S. aureus</em></div></div>'
             f'</div>', unsafe_allow_html=True)
         C.panel_close()
         st.write("")
         C.panel_open("Training-data summary", eyebrow="Provenance", icon_name="database")
         st.markdown(
-            '<div class="gf-sub">Genomes sourced from BV-BRC / NCBI, de-duplicated and split '
-            'by <b>genetic cluster</b> (never randomly) into train / calibration / test. '
-            'Whole clusters are assigned to exactly one split to prevent leakage. In this '
-            'demo build the analysis provider is a mock; metrics populate once the full '
-            'pipeline (<span class="gf-mono">make all</span>) has run.</div>',
+            '<div class="gf-sub">Genomes are sourced from BV-BRC / NCBI. The final '
+            'per-antibiotic XGBoost models use AMRFinderPlus genotype features and are '
+            'refit on every labeled genome. Hyperparameters and sigmoid calibration use '
+            'Mash-clustered out-of-fold predictions with inverse duplicate-family weights. '
+            'The earlier Mash-separated test report is retained as historical evidence; '
+            'fresh external validation is still required.</div>',
             unsafe_allow_html=True)
         C.panel_close()
 
@@ -73,10 +74,9 @@ def render(store, user) -> None:
     g1, g2 = st.columns(2)
     with g1:
         _concept("Confidence calibration", "gauge",
-                 "Probabilities are calibrated on a dedicated held-out calibration split, "
-                 "then verified with a reliability diagram and Brier score on the hidden "
-                 "test split. Reported confidence is model confidence — not a guarantee of "
-                 "clinical effectiveness.")
+                 "The production refit uses sigmoid calibration learned from grouped "
+                 "out-of-fold predictions across the full labeled dataset. Reported "
+                 "confidence is model confidence — not a guarantee of clinical effectiveness.")
         _concept("What no-call means", "minus-circle",
                  "When evidence is weak, conflicting, or out-of-distribution, the model "
                  "returns no-call instead of forcing a verdict. No-call is a valid, honest "

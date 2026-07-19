@@ -1,7 +1,7 @@
 # Genome Firewall — reproducible pipeline. Targets call into src/genome_firewall/*.
-.PHONY: all amr-setup acquire annotate featurize split train ensemble calibrate evaluate app clean
+.PHONY: all amr-setup acquire annotate featurize split train ensemble final-train select calibrate evaluate app clean
 
-all: acquire annotate featurize split train calibrate evaluate ensemble   ## full pipeline
+all: acquire annotate featurize split final-train   ## full XGBoost production pipeline
 
 amr-setup:  ## install NCBI AMRFinderPlus (conda 'amr' env, falls back to docker ncbi/amr)
 	bash scripts/setup_amrfinder.sh
@@ -18,16 +18,22 @@ featurize:  ## TSVs -> data/processed/features.parquet + feature_spec.json
 split:      ## de-dup + grouped split -> data/processed/splits.json
 	PYTHONPATH=src python -m genome_firewall.split
 
-train:      ## per-antibiotic L2 baseline used by the app
+train:      ## historical per-antibiotic L2 baseline
 	PYTHONPATH=src python -m genome_firewall.model_baseline
 
-ensemble:   ## L1 LR + HistGradientBoosting + XGBoost, with optional embeddings
-	PYTHONPATH=src python -m genome_firewall.model_ensemble
+ensemble:   ## genotype-only L1 LR + HistGradientBoosting + XGBoost
+	PYTHONPATH=src python -m genome_firewall.model_ensemble --setups genotype_only --voting inverse-brier
 
-calibrate:  ## calibrate the app baseline on the dedicated cal split
+final-train: ## deployment refit of per-antibiotic XGBoost on every labeled genome
+	PYTHONPATH=src python -m genome_firewall.final_train
+
+calibrate:  ## calibrate the app baseline on the dedicated cal split (backed up by select)
 	PYTHONPATH=src python -m genome_firewall.calibrate
 
-evaluate:   ## evaluate the app baseline on held-out grouped test
+select:     ## historical bakeoff -> best-3 soft ensemble experiment
+	PYTHONPATH=src python -m genome_firewall.model_select
+
+evaluate:   ## evaluate legacy models on the held-out grouped test
 	PYTHONPATH=src python -m genome_firewall.evaluate
 
 app:        ## launch the Streamlit demo

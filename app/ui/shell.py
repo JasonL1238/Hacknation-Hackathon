@@ -1,5 +1,5 @@
 """
-Genome Firewall — application shell & router.
+BioShield AI — application shell & router.
 
 Provides the persistent desktop chrome (deep-navy sidebar nav rail + top bar
 with global search / workspace / notifications / profile) and a lightweight
@@ -111,7 +111,7 @@ def render_sidebar(user: dict) -> None:
     with st.sidebar:
         st.markdown(
             f'<div class="gf-brandmark"><div class="m">{icon("shield-check", 20)}</div>'
-            f'<div class="t"><b>Genome Firewall</b><span>Clinical AMR Intelligence</span></div></div>',
+            f'<div class="t"><b>BioShield AI</b><span>Clinical AMR Intelligence</span></div></div>',
             unsafe_allow_html=True,
         )
 

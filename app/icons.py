@@ -1,4 +1,4 @@
-"""Inline SVG icon set for Genome Firewall (Lucide-style, stroke-based).
+"""Inline SVG icon set for BioShield AI (Lucide-style, stroke-based).
 
 Vector icons (not emoji) so glyphs render consistently across platforms and
 inherit theme color via `currentColor`. 24×24 viewBox, stroke-based.

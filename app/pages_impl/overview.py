@@ -121,7 +121,7 @@ def render(store, user) -> None:
             unsafe_allow_html=True,
         )
         st.markdown('<div class="gf-sub" style="margin-top:8px">Model '
-                    '<span class="gf-mono">genome-firewall-v0.1</span>. '
+                    '<span class="gf-mono">bioshield-xgboost-v1</span>. '
                     'Coverage is shown before every submission.</div>', unsafe_allow_html=True)
         if st.button("Model information", key="ov_model", icon=":material/arrow_forward:"):
             nav_to("model")

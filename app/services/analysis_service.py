@@ -1,5 +1,5 @@
 """
-Genome Firewall — analysis service (model-integration seam).
+BioShield AI — analysis service (model-integration seam).
 
 The UI never talks to a model directly. It goes through an `AnalysisProvider`
 whose method surface mirrors the suggested asynchronous API:
@@ -399,18 +399,73 @@ class MockAnalysisProvider(AnalysisProvider):
 class LocalAnalysisProvider(MockAnalysisProvider):
     """Real per-drug predictions from the trained + calibrated models.
 
-    Inherits the mock's *real* FASTA validation and time-based stage machine, and
-    replaces only result generation. It resolves the submission to a dataset genome
-    by filename stem (a BV-BRC id such as ``1280.16771``), loads that genome's
-    AMRFinderPlus feature vector, and runs the real `report.build_report_for_antibiotic`
-    per drug — the same calibrated probabilities `evaluate.py` scores on the held-out
-    test split.
-
-    If the genome is unknown and live AMRFinderPlus annotation is unavailable, it
-    returns an honest all-no-call ("could not annotate") — it never fabricates calls.
+    New uploads are annotated synchronously with the AMRFinderPlus version/database
+    frozen in ``feature_spec.json`` and passed to the full-data production refit.
+    Bundled demonstration genomes may still use their precomputed reports.
     """
 
     name = "local"
+
+    def start_analysis(self, analysis) -> Analysis:
+        """Synchronously annotate an uploaded FASTA and run the production model.
+
+        The FASTA and AMRFinder TSV are held only in temporary storage. The input
+        bytes are removed from the session object in ``finally`` on both success
+        and failure.
+        """
+        import tempfile
+
+        from genome_firewall import featurize, report
+
+        analysis.status = AnalysisStatus.PROCESSING.value
+        analysis.started_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        analysis.current_stage = 0
+        payload = getattr(analysis, "_fasta_bytes", None)
+        try:
+            if not payload:
+                raise RuntimeError("The uploaded FASTA is no longer available; please upload it again.")
+            suffix = Path(analysis.genome.filename if analysis.genome else "genome.fna").suffix
+            if suffix.lower() not in {".fa", ".fna", ".fasta", ".txt"}:
+                suffix = ".fna"
+            with tempfile.TemporaryDirectory(prefix="bioshield-analysis-") as temp_dir:
+                fasta_path = Path(temp_dir) / f"upload{suffix}"
+                fasta_path.write_bytes(payload)
+                analysis.current_stage = 2
+                vector, present = featurize.extract_fasta_features(
+                    fasta_path, report._load_feature_spec()
+                )
+                analysis.current_stage = 5
+                analysis.detected_amr_features = sorted(present)
+                analysis.results = self._results_from_vector(vector.to_numpy())
+
+            columns = set(report._load_feature_spec()["columns"])
+            unseen = sorted(set(analysis.detected_amr_features) - columns)
+            analysis.overall_warnings = []
+            if unseen:
+                analysis.overall_warnings.append(
+                    f"AMRFinderPlus detected {len(unseen)} AMR feature(s) outside the "
+                    "frozen training schema. They are displayed but were not used by the model."
+                )
+            n_nocall = analysis.counts()[Prediction.NO_CALL.value]
+            if n_nocall >= max(3, len(analysis.results) // 2):
+                analysis.status = AnalysisStatus.COMPLETED_NO_CALL.value
+                analysis.overall_warnings.append(
+                    "A majority of antibiotics returned no-call. Prioritize laboratory testing."
+                )
+            else:
+                analysis.status = AnalysisStatus.COMPLETED.value
+            analysis.current_stage = len(PIPELINE_STAGES) - 1
+            analysis.completed_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        except Exception as exc:  # noqa: BLE001 — convert tool/model errors to a safe UI state
+            analysis.status = AnalysisStatus.FAILED.value
+            analysis.error_message = str(exc)
+            analysis.results = []
+        finally:
+            if hasattr(analysis, "_fasta_bytes"):
+                analysis._fasta_bytes = None  # type: ignore[attr-defined]
+                delattr(analysis, "_fasta_bytes")
+            payload = None
+        return analysis
 
     def generate_results(self, analysis) -> list[AntibioticResult]:
         import json
@@ -425,21 +480,31 @@ class LocalAnalysisProvider(MockAnalysisProvider):
                 return self._to_results(json.loads(demo.read_text()))
 
         # 2) Genome features on disk — run the real models live.
-        drugs = {d.get("antibiotic", ""): d for d in _DRUGS}
         fv, cols = self._feature_vector(gid)
         if fv is not None:
-            config = report._load_config()
-            models = report._load_models()
-            legacy = []
-            for ab, model in models.items():
-                r = report.build_report_for_antibiotic(ab, fv, cols, model, drugs.get(ab, {}), config)
-                legacy.append(r)
-            return self._to_results(legacy)
+            return self._results_from_vector(fv)
 
         # 3) Cannot annotate → honest all-no-call, never fabricated predictions.
         return self._unannotatable(analysis)
 
     # ── helpers ─────────────────────────────────────────────────────────────
+    def _results_from_vector(self, feature_vector) -> list[AntibioticResult]:
+        from genome_firewall import report
+
+        drugs = {d.get("antibiotic", ""): d for d in _DRUGS}
+        config = report._load_config()
+        columns = report._load_feature_spec()["columns"]
+        models = report._load_models()
+        if not models:
+            raise RuntimeError("Final trained model artifacts are not installed.")
+        legacy = [
+            report.build_report_for_antibiotic(
+                ab, feature_vector, columns, model, drugs.get(ab, {}), config
+            )
+            for ab, model in models.items()
+        ]
+        return self._to_results(legacy)
+
     def _genome_id(self, analysis) -> str | None:
         if not (analysis.genome and analysis.genome.filename):
             return None
@@ -551,8 +616,11 @@ def get_provider() -> AnalysisProvider:
 
     base = os.environ.get("GENOME_FIREWALL_API_BASE", "").strip()
     forced = os.environ.get("GENOME_FIREWALL_PROVIDER", "").strip().lower()
-    models_present = any((_ROOT / "data" / "processed" / "models").glob("*.pkl")) \
-        if (_ROOT / "data" / "processed" / "models").exists() else False
+    model_dirs = [
+        _ROOT / "data" / "processed" / "final_models",
+        _ROOT / "data" / "processed" / "models",
+    ]
+    models_present = any(any(path.glob("*.pkl")) for path in model_dirs if path.exists())
 
     if base:
         _provider = ApiAnalysisProvider(base)

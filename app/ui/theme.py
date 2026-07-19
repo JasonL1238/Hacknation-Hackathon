@@ -1,5 +1,5 @@
 """
-Genome Firewall — Design system.
+BioShield AI — Design system.
 
 A single, cohesive set of design tokens (color, type, space, radius, shadow,
 motion) exposed as CSS variables, plus the global stylesheet that turns a stock

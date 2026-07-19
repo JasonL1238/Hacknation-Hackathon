@@ -29,7 +29,6 @@ from sklearn.base import BaseEstimator
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -43,6 +42,8 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from genome_firewall.ensemble_calibration import ScoreCalibrator
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
@@ -53,17 +54,6 @@ DEFAULT_DRUGS = REPO_ROOT / "db" / "drugs_saureus.csv"
 DEFAULT_REPORT_DIR = REPO_ROOT / "reports" / "soft_ensemble"
 DEFAULT_ARTIFACT_DIR = PROCESSED_DIR / "ensemble_models"
 
-EMBEDDING_CANDIDATES = {
-    "esm2": [
-        PROCESSED_DIR / "esm2_embeddings.parquet",
-        REPO_ROOT / "data" / "interim" / "esm2_embeddings.parquet",
-    ],
-    "dnabert2": [
-        PROCESSED_DIR / "dnabert2_embeddings.parquet",
-        REPO_ROOT / "data" / "interim" / "dnabert2_embeddings.parquet",
-    ],
-}
-
 BASE_MODELS = ("l1_logistic", "hist_gradient_boosting", "xgboost")
 
 
@@ -72,78 +62,10 @@ class FeatureSetup:
     name: str
     frame: pd.DataFrame
     genotype_columns: tuple[str, ...]
-    embedding_columns: tuple[str, ...]
-
-
-class ScoreCalibrator:
-    """A small serializable calibrator fitted to one-dimensional model scores."""
-
-    def __init__(self, method: str = "sigmoid") -> None:
-        if method not in {"sigmoid", "isotonic"}:
-            raise ValueError("calibration must be 'sigmoid' or 'isotonic'")
-        self.method = method
-        self.model: Any | None = None
-
-    @staticmethod
-    def _logit(probability: np.ndarray) -> np.ndarray:
-        p = np.clip(np.asarray(probability, dtype=float), 1e-6, 1 - 1e-6)
-        return np.log(p / (1 - p)).reshape(-1, 1)
-
-    def fit(
-        self, probability: np.ndarray, y: np.ndarray, sample_weight: np.ndarray
-    ) -> "ScoreCalibrator":
-        if len(np.unique(y)) < 2:
-            raise ValueError("calibration split must contain both R and S labels")
-        if self.method == "sigmoid":
-            self.model = LogisticRegression(C=1e6, solver="lbfgs", max_iter=2000)
-            self.model.fit(self._logit(probability), y, sample_weight=sample_weight)
-        else:
-            self.model = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-            self.model.fit(probability, y, sample_weight=sample_weight)
-        return self
-
-    def predict(self, probability: np.ndarray) -> np.ndarray:
-        if self.model is None:
-            raise RuntimeError("calibrator has not been fitted")
-        if self.method == "sigmoid":
-            return self.model.predict_proba(self._logit(probability))[:, 1]
-        return np.asarray(self.model.predict(probability), dtype=float)
-
-
-def _read_indexed_parquet(path: Path, prefix: str) -> pd.DataFrame:
-    frame = pd.read_parquet(path)
-    if "genome_id" in frame.columns:
-        frame = frame.set_index("genome_id")
-    frame.index = frame.index.astype(str)
-    frame.index.name = "genome_id"
-    if not frame.index.is_unique:
-        duplicates = frame.index[frame.index.duplicated()].unique()[:5].tolist()
-        raise ValueError(f"{path} has duplicate genome_id values, e.g. {duplicates}")
-    non_numeric = frame.select_dtypes(exclude=[np.number]).columns.tolist()
-    if non_numeric:
-        raise ValueError(f"{path} has non-numeric embedding columns: {non_numeric[:5]}")
-    values = frame.to_numpy(dtype=float)
-    if not np.isfinite(values).all():
-        raise ValueError(f"{path} contains NaN or infinite embedding values")
-    frame = frame.astype("float32")
-    frame.columns = [f"{prefix}__{column}" for column in frame.columns]
-    return frame.sort_index()
-
-
-def _discover_embedding(explicit: str | None, kind: str) -> Path | None:
-    if explicit:
-        path = Path(explicit).expanduser().resolve()
-        if not path.exists():
-            raise FileNotFoundError(f"requested {kind} embeddings not found: {path}")
-        return path
-    return next((path for path in EMBEDDING_CANDIDATES[kind] if path.exists()), None)
 
 
 def load_feature_setups(
     features_path: Path,
-    esm2_path: Path | None = None,
-    dnabert2_path: Path | None = None,
-    include_combined: bool = False,
 ) -> dict[str, FeatureSetup]:
     genotype = pd.read_parquet(features_path)
     if "genome_id" in genotype.columns:
@@ -158,45 +80,9 @@ def load_feature_setups(
 
     setups: dict[str, FeatureSetup] = {
         "genotype_only": FeatureSetup(
-            "genotype_only", genotype, genotype_columns, tuple()
+            "genotype_only", genotype, genotype_columns
         )
     }
-    embeddings: dict[str, pd.DataFrame] = {}
-    for kind, path in (("esm2", esm2_path), ("dnabert2", dnabert2_path)):
-        if path is None:
-            continue
-        embedded = _read_indexed_parquet(path, kind)
-        missing = genotype.index.difference(embedded.index)
-        if len(missing):
-            raise ValueError(
-                f"{kind} embeddings are missing {len(missing)} genotype genomes "
-                f"(e.g. {missing[:5].tolist()}); regenerate a complete cache"
-            )
-        embedded = embedded.reindex(genotype.index)
-        embeddings[kind] = embedded
-        embedding_columns = tuple(embedded.columns)
-        setups[f"{kind}_only"] = FeatureSetup(
-            f"{kind}_only", embedded, tuple(), embedding_columns
-        )
-        concatenated = pd.concat([genotype, embedded], axis=1)
-        setups[f"genotype_plus_{kind}"] = FeatureSetup(
-            f"genotype_plus_{kind}",
-            concatenated,
-            genotype_columns,
-            embedding_columns,
-        )
-
-    if include_combined and {"esm2", "dnabert2"}.issubset(embeddings):
-        combined = pd.concat([genotype, embeddings["esm2"], embeddings["dnabert2"]], axis=1)
-        embedding_columns = tuple(embeddings["esm2"].columns) + tuple(
-            embeddings["dnabert2"].columns
-        )
-        setups["genotype_plus_esm2_plus_dnabert2"] = FeatureSetup(
-            "genotype_plus_esm2_plus_dnabert2",
-            combined,
-            genotype_columns,
-            embedding_columns,
-        )
     return setups
 
 
@@ -284,16 +170,6 @@ def _preprocessor(setup: FeatureSetup) -> ColumnTransformer:
                     [("impute", SimpleImputer(strategy="constant", fill_value=0)), ("scale", StandardScaler())]
                 ),
                 list(setup.genotype_columns),
-            )
-        )
-    if setup.embedding_columns:
-        transformers.append(
-            (
-                "embedding",
-                Pipeline(
-                    [("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]
-                ),
-                list(setup.embedding_columns),
             )
         )
     return ColumnTransformer(transformers, remainder="drop")
@@ -502,8 +378,8 @@ def _l1_coefficient_rows(
     for feature_name, coefficient in zip(names, coefficients):
         if abs(coefficient) <= 1e-12:
             continue
-        # ColumnTransformer adds a transformer prefix.  Keep the source prefix
-        # (geno__/esm2__/dnabert2__) because it makes the output self-describing.
+        # ColumnTransformer adds a transformer prefix. Keep the genotype source
+        # prefix because it makes the output self-describing.
         feature_name = str(feature_name).split("__", 1)[-1]
         marker_name = feature_name.split("__", 1)[-1]
         rows.append(
@@ -562,9 +438,7 @@ def run(args: argparse.Namespace) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    esm2_path = _discover_embedding(args.esm2_embeddings, "esm2")
-    dnabert2_path = _discover_embedding(args.dnabert2_embeddings, "dnabert2")
-    setups = load_feature_setups(features_path, esm2_path, dnabert2_path, args.include_combined)
+    setups = load_feature_setups(features_path)
     if args.setups:
         unknown = set(args.setups) - set(setups)
         if unknown:
@@ -841,8 +715,6 @@ def run(args: argparse.Namespace) -> None:
         "labels": str(labels_path),
         "splits": str(splits_path),
         "drugs_db": str(Path(args.drugs_db).resolve()),
-        "esm2_embeddings": str(esm2_path) if esm2_path else None,
-        "dnabert2_embeddings": str(dnabert2_path) if dnabert2_path else None,
         "feature_setups": list(setups),
         "models": list(models),
         "seed": args.seed,
@@ -879,9 +751,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--labels", default=str(DEFAULT_LABELS))
     parser.add_argument("--splits", default=str(DEFAULT_SPLITS))
     parser.add_argument("--drugs-db", default=str(DEFAULT_DRUGS))
-    parser.add_argument("--esm2-embeddings", default=None)
-    parser.add_argument("--dnabert2-embeddings", default=None)
-    parser.add_argument("--include-combined", action="store_true")
     parser.add_argument("--setups", nargs="+", default=None)
     parser.add_argument("--antibiotics", nargs="+", default=None)
     parser.add_argument("--models", nargs="+", default=list(BASE_MODELS))

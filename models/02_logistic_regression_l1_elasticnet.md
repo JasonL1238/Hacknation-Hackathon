@@ -1,5 +1,11 @@
 # L1 / Elastic-Net Logistic Regression
 
+## Current status and duplicate policy
+
+Pure L1 is already implemented and tested in the completed ensemble. Elastic Net is the
+next experiment. It must reuse the committed Mash split, group every internal fold by
+`cluster_id`, and weight each labeled row by `1 / labeled dedup-group size`.
+
 > **One-liner:** A sparsity-inducing linear classifier (`saga` solver) that drives most gene coefficients to exactly zero, leaving only the few driver genes behind each per-antibiotic R/S call.
 > **Category:** linear ·
 > **Runs on:** local CPU ·
@@ -15,12 +21,13 @@ Prefer it over the L2 baseline (file 01) when the goal is to **identify which ge
 ## Data interface (the contract this code must respect)
 - Reads `data/processed/features.parquet` (index `genome_id`, binary int8 columns) as X.
 - Reads `data/processed/labels.csv`, filtered per antibiotic; maps R→1, S→0.
-- Reads `data/processed/splits.json` for grouped train/cal/test and `cluster_id`; never re-split randomly.
+- Reads `data/processed/splits.json` for split, `cluster_id`, and `dedup_group_id`; never re-split randomly.
 - Fit on **train** only; calibrate on **cal** only; report metrics on **test** only.
 - Reads `db/drugs_saureus.csv` for the downstream target gate.
 
 ## Adversarial checks it must survive
-- **No leakage (Rule 1):** Use `splits.json` verbatim; verify no `cluster_id` spans splits. Select `C` and `l1_ratio` with GroupKFold on `cluster_id` inside train only.
+- **No leakage (Rule 1):** Use `splits.json` verbatim; verify no `cluster_id` or `dedup_group_id` spans splits. Select `C` and `l1_ratio` with grouped folds inside train only.
+- **Duplicate control:** fit, tune, calibrate, and evaluate with normalized inverse labeled-family weights; also report ordinary metrics.
 - **Calibration (Rule 2):** Sparse solutions can shift the probability scale; calibrate on `cal`, report Brier + reliability on `test`.
 - **Honest explanations (Rule 5):** The surviving nonzero coefficients are the "driver genes" only in a **statistical** sense for this dataset — not proof of causation. Cross-reference the selected genes against `known_markers` in `drugs_saureus.csv`, and clearly separate catalog-confirmed markers from statistical-only survivors. Report selection stability across GroupKFold folds so a single lucky fold does not define the driver set.
 - **Correlated-gene arbitrariness:** Pure L1 zeroing one of two co-occurring genes is a modeling artifact, not biology. Mitigate by using elastic-net and by reporting the correlated cluster, not just the winner.
@@ -51,7 +58,7 @@ Write complete, runnable Python (scikit-learn, pandas, numpy, matplotlib) that t
 DATA CONTRACT (files already exist on disk):
 - data/processed/features.parquet: one row per genome, index = genome_id (str). Columns are binary int8 presence/absence of AMR gene symbols (e.g. mecA, blaZ, ermC, tetK, aac(6')-aph(2'')) and named point mutations (e.g. gyrA_S84L, grlA_S80F). Column set is the union across the dataset; absent = 0; no missing values. Tens-to-low-hundreds of sparse binary columns, hundreds-to-low-thousands of genomes.
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant/likely-to-fail, S = susceptible/likely-to-work), source, method. One row per (genome_id, antibiotic). About 4-6 antibiotics (e.g. erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
-- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
+- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int, "dedup_group_id": int, "dedup_group_size": int}. Neither a cluster nor duplicate family spans splits.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name. Used for a deterministic target gate.
 
 PROTOCOL (obey exactly):
@@ -59,7 +66,8 @@ PROTOCOL (obey exactly):
 2. Fit the model on the TRAIN split ONLY. Fit probability calibration on the CAL split ONLY. Report ALL metrics on the TEST split ONLY.
 3. NEVER re-split randomly and NEVER let a cluster span splits — always use splits.json. For hyperparameter selection use GroupKFold on cluster_id WITHIN the train split only; never touch cal or test.
 4. Handle class imbalance with class_weight="balanced". Do NOT use SMOTE or synthetic oversampling.
-5. Emit calibrated probabilities and implement a no-call rule: return "no-call" when the calibrated probability is in the ambiguous band ~0.4-0.6. Also expose a target-gate hook (if the drug's target_genes are all absent, do not output "likely to work" from marker absence alone).
+5. Pass normalized sample_weight = 1 / labeled dedup-group size in fitting and calibration, and use those weights for duplicate-weighted metrics.
+6. Emit calibrated probabilities and implement a no-call rule: return "no-call" when the calibrated probability is in the ambiguous band ~0.4-0.6. Also expose a target-gate hook (if the drug's target_genes are all absent, do not output "likely to work" from marker absence alone).
 
 MODEL SPECIFICS:
 - Use sklearn.linear_model.LogisticRegression with solver="saga", class_weight="balanced", max_iter=5000, and check convergence (n_iter_). Standardize features before fitting to help saga converge.

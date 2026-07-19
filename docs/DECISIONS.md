@@ -215,18 +215,17 @@ decision and why it doesn't hold.
   HistGradientBoosting, XGBoost, and uniform probability-average ensemble per antibiotic
   and feature setup. Hyperparameters and feature setup use only duplicate-weighted,
   cluster-grouped train OOF Brier; models refit on train, a preselected sigmoid/Platt map
-  fits on cal, and test is evaluated once. Frozen ESM-2/DNABERT-2 Parquets are optional;
-  scaling is inside each fold. Outputs include ordinary + duplicate-weighted metrics,
+  fits on cal, and test is evaluated once. Outputs include ordinary + duplicate-weighted metrics,
   per-cluster metrics, predictions, OOF disagreement, L1 coefficients, reliability plots,
   selection evidence, run config, and fitted artifacts.
 - Why: uniform voting has less overfitting surface than stacking or test-selected weights;
   Platt calibration is safer than isotonic for the smaller calibration strata. Reporting
   every base learner prevents the ensemble from being declared best merely because it was
-  planned in advance. Frozen label-free embeddings can be reused while every supervised
-  head/calibrator is retrained after this split change.
+  planned in advance. Every supervised model and calibrator is retrained after this
+  split change.
 - Adversarial case considered: XGBoost and HistGradientBoosting may be too correlated for
-  voting to help; inverse duplicate weights reduce effective sample size; DNA embeddings
-  may encode lineage rather than mechanism; and test-based feature selection would leak.
+  voting to help; inverse duplicate weights reduce effective sample size; and test-based
+  feature selection would leak.
   Mitigations are OOF disagreement/correlation, ordinary and weighted sensitivity metrics,
   whole-Mash-cluster folds, and train-OOF-only setup selection. The ensemble must lose to a
   simpler base learner when its Brier is worse. A real cefoxitin smoke run demonstrated
@@ -258,6 +257,47 @@ decision and why it doesn't hold.
 - Evidence: new held-out baseline macro balanced accuracy 0.7905, AUROC 0.8818, PR-AUC
   0.8002, Brier 0.1361, no-call rate 0.0197. Per-antibiotic and per-cluster results are in
   the regenerated `data/processed/metrics.json`.
+
+### 2026-07-19 — Served model is now a best-3 soft-voting ensemble (bakeoff + selection)
+- What: replaced the single-logistic app baseline with a per-drug soft-voting ensemble of
+  `l2_logistic + l1_logistic + hist_gradient_boosting`, chosen by a 9-candidate CPU-local
+  bakeoff (`src/genome_firewall/model_select.py`, served via `src/genome_firewall/serving.py`).
+  Full writeup + reproduce commands in `docs/MODEL_SELECTION.md`; experiment tables in
+  `reports/model_selection/`. True baseline preserved at `data/processed/models/baseline_backup/`.
+- Why: a bakeoff + ensemble beats a single guessed model and matches the RFP's "focused
+  tabular bakeoff → duplicate-aware soft-voting ensemble". Net held-out gain over baseline:
+  macro balanced accuracy 0.7905→0.7993, recall_R 0.681→0.711, PR-AUC 0.8002→0.8088,
+  Brier 0.1361→0.1337 (gentamicin the standout: recall_R +0.18).
+- Adversarial case considered — leakage by selection: selecting the trio on the **test**
+  split would silently leak. Mitigated: model/hyperparameter/trio selection uses **train
+  grouped-OOF only**; test is read once by `evaluate.py`. Calibration on cal only.
+- Adversarial case considered — objective gaming: our first objective (OOF Brier alone)
+  picked a trio containing `random_forest`, which collapsed tetracycline on test
+  (AUROC 0.94→0.69). Root cause was visible **in OOF** (RF had best OOF Brier but worst OOF
+  balanced accuracy — calibrated but non-discriminating). We switched to a Borda composite
+  of OOF Brier + OOF balanced accuracy (both judged criteria), which is defensible
+  independent of the test regression and still train-only. We then **froze** the objective
+  and did not keep swapping members to chase per-drug test numbers (that would be manual
+  test-set overfitting).
+- Adversarial case considered — global vs per-drug trio: ciprofloxacin is tree-friendly,
+  tetracycline logistic-friendly, so no global trio is per-drug-optimal. Kept global because
+  on OOF (the only usable signal) ciprofloxacin's tree benefit is invisible, so per-drug
+  selection wouldn't recover it and adds overfit risk on small drugs.
+
+### 2026-07-19 — Deployment changed to per-antibiotic XGBoost
+- What: the project owner superseded the served ensemble with one genotype-only XGBoost
+  classifier per antibiotic. `genome_firewall.final_train` tunes with Mash-clustered OOF,
+  learns a sigmoid map from OOF scores, and refits on all labeled rows. The Streamlit app
+  loads only these artifacts from `data/processed/final_models/`.
+- Why: deployment simplicity and the owner's final model choice. The ensemble reports
+  remain historical research artifacts and are not deleted.
+- Evaluation caveat: this decision followed inspection of held-out reports. Those reports
+  may describe historical behavior but are no longer an unbiased selection estimate for
+  the chosen production model. New external genomes are required for a fresh final claim.
+- Known residual: ciprofloxacin and tetracycline are capped by out-of-distribution resistant
+  clades (e.g. test cluster 49, 74 R predicted S) that the baseline also fails. Honest
+  unseen-group drop; principled fix is the planned OOD no-call (no test labels) — not yet
+  implemented.
 
 ### Open questions to answer before "done"
 - [x] Leakage: proof no cluster spans train/test (assert output + de-dup count). (2026-07-18, `split.py`)

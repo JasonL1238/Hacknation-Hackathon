@@ -56,16 +56,19 @@ Antibiotic-resistant infections are associated with **4.7 million deaths** annua
 
 ## Model Evaluation
 
-The implemented candidate is a calibrated soft ensemble of XGBoost,
-HistGradientBoosting, and L1 logistic regression. It is compared fairly with each base
-model across genotype, ESM-2, and DNABERT-2 feature setups.
+The historical comparison is a calibrated soft ensemble of XGBoost,
+HistGradientBoosting, and L1 logistic regression, evaluated alongside each base model.
+The completed retained experiment is genotype-only; the focused research catalog
+is [`models/00_OVERVIEW.md`](models/00_OVERVIEW.md), and the local experiment workspace is
+[`experiments/model_bakeoff/`](experiments/model_bakeoff/README.md).
 
 Final performance is intentionally not hard-coded here. Run the duplicate-aware grouped
 evaluation and read `reports/soft_ensemble/model_comparison.csv`:
 
 ```bash
 make split       # whole-genome Mash groups; requires the local raw FASTAs
-make ensemble    # grouped tuning, calibration, held-out evaluation
+PYTHONPATH=src python -m genome_firewall.model_ensemble \
+  --setups genotype_only --voting inverse-brier
 ```
 
 All 2,542 genomes are retained, but near-identical genomes receive inverse-group weights
@@ -73,6 +76,14 @@ so repeated lineages cannot dominate training or evaluation. Feature setup is se
 using grouped out-of-fold Brier score inside train—not the test set. See
 [`models/23_soft_voting_ensemble.md`](models/23_soft_voting_ensemble.md) for paths,
 commands, and output definitions.
+
+The deployed model is XGBoost-only at the project owner's direction. `make final-train`
+tunes one XGBoost classifier per antibiotic and learns sigmoid calibration from grouped
+out-of-fold predictions over every labeled genome, then refits XGBoost on every labeled
+row and writes `data/processed/final_models/`. Those OOF diagnostics are training
+diagnostics, not a replacement for the earlier held-out results. Because the choice to
+deploy XGBoost was made after inspecting those results, a fresh external dataset is
+required for an unbiased final evaluation of this production choice.
 
 ---
 
@@ -96,10 +107,10 @@ conda env create -f environment.yml
 conda activate genome-firewall
 python -m pip install -e .
 
-# Install AMRFinderPlus
-make amr-setup
+# environment.yml installs the runtime-pinned AMRFinderPlus package.
+# Existing environments can instead use: make amr-setup
 
-# Run the full pipeline
+# Build features and create the all-data XGBoost deployment refit
 make all
 
 # Launch the Streamlit demo
@@ -119,6 +130,7 @@ streamlit run app/streamlit_app.py
 | `make calibrate` | Calibrate the app baseline on the dedicated calibration split |
 | `make evaluate` | Evaluate the app baseline on held-out grouped test |
 | `make ensemble` | Train, calibrate, and evaluate the duplicate-aware soft ensemble |
+| `make final-train` | Refit calibrated XGBoost on every labeled genome for deployment |
 | `make all` | Run the complete pipeline |
 | `make app` | Launch Streamlit demo |
 
@@ -135,7 +147,7 @@ Hacknation-Hackathon/
 ├── data/
 │   ├── raw/                      # Genomes + AST (gitignored)
 │   ├── interim/amrfinder/        # AMRFinderPlus outputs
-│   └── processed/                # Feature matrix, labels, splits
+│   └── processed/                # Features, labels, splits, final XGBoost artifacts
 ├── db/
 │   └── drugs_saureus.csv         # Curated drug database
 ├── docs/
@@ -152,6 +164,7 @@ Hacknation-Hackathon/
 │   ├── split.py                  # Grouped split (de-dup)
 │   ├── labels.py                 # SIR/MIC → binary R/S
 │   ├── model_ensemble.py         # Duplicate-aware training/calibration/evaluation
+│   ├── final_train.py            # All-data deployment refit
 │   └── report.py                 # Structured report generation
 ├── environment.yml               # Conda environment
 ├── Makefile                      # Pipeline automation
@@ -184,6 +197,26 @@ BioShield AI is built with strict responsible AI principles:
 | **Explicit No-Call** | Returns no-call when evidence is weak or conflicting |
 | **Transparent Evidence** | Separates known resistance genes from statistical associations |
 | **Human Oversight** | Mandatory lab confirmation; the system never makes treatment decisions |
+
+---
+
+## Streamlit Community Cloud deployment
+
+Streamlit Community Cloud is the preferred free demo host because this repository is a
+native Streamlit app and Community Cloud recognizes the conda `environment.yml`, including
+the pinned Bioconda AMRFinderPlus runtime. Deploy `app/streamlit_app.py`, use Python 3.11,
+and add `SUPABASE_URL` and `SUPABASE_KEY` as app secrets. Do not run `amrfinder -u` in
+the deployed app: inference intentionally refuses a database version different from the
+one frozen in `data/processed/feature_spec.json`.
+
+The upload path is synchronous and single-genome. FASTA bytes are held only until
+AMRFinderPlus and model inference finish; the temporary FASTA and TSV are then deleted on
+success or failure. Results and submission metadata remain in the authenticated Streamlit
+session, but the genome itself is not uploaded to Supabase Storage.
+
+Free hosting is suitable only for this research demonstration. It is not an appropriate
+environment for clinical workloads, protected health information, uptime guarantees, or
+regulated deployment.
 
 ---
 

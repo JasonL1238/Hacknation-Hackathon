@@ -1,5 +1,5 @@
 """
-Genome Firewall — clinical AMR decision-support platform (Streamlit).
+BioShield AI — clinical AMR decision-support platform (Streamlit).
 
 Entry point: page config → design system → auth gate → application shell →
 session-state router that dispatches to the page modules in app/pages_impl.
@@ -49,7 +49,7 @@ def _bridge_secrets_to_env() -> None:
 _bridge_secrets_to_env()
 
 st.set_page_config(
-    page_title="Genome Firewall — Clinical AMR Intelligence",
+    page_title="BioShield AI — Clinical AMR Intelligence",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",

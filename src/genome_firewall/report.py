@@ -54,7 +54,8 @@ def _load_drugs_db() -> dict[str, dict]:
 
 def _load_models() -> dict[str, Any]:
     """Load trained + calibrated per-antibiotic model pickles."""
-    models_dir = PROCESSED / "models"
+    final_dir = PROCESSED / "final_models"
+    models_dir = final_dir if any(final_dir.glob("*.pkl")) else PROCESSED / "models"
     models = {}
     if not models_dir.exists():
         return models
@@ -70,17 +71,14 @@ def _featurize_single_genome(fasta_path: str) -> np.ndarray:
     Run AMRFinderPlus on a single FASTA and return a feature vector
     in feature_spec.json column order.
     """
-    from genome_firewall.annotate import run_amrfinder_single
-    from genome_firewall.featurize import parse_amrfinder_tsv_to_vector
+    from genome_firewall.featurize import vectorize_fasta
 
-    spec = _load_feature_spec()
-    tsv_path = run_amrfinder_single(fasta_path)
-    vector = parse_amrfinder_tsv_to_vector(tsv_path, spec["columns"])
-    return vector
+    return vectorize_fasta(fasta_path, _load_feature_spec()).to_numpy()
 
 
 def _determine_evidence_category(
     supporting_features: list[str],
+    statistical_features: list[str],
     known_markers: list[str],
     model_contribution: float,
 ) -> str:
@@ -96,7 +94,7 @@ def _determine_evidence_category(
 
     if has_catalog_hit:
         return "i"
-    elif supporting_features and abs(model_contribution) > 0.1:
+    elif statistical_features and abs(model_contribution) > 0.1:
         return "ii"
     else:
         return "iii"
@@ -174,6 +172,7 @@ def build_report_for_antibiotic(
 
     # Identify supporting features (top contributors)
     supporting_features = []
+    statistical_features = []
     reasons = []
 
     known_markers_str = drug_info.get("known_markers", "")
@@ -206,7 +205,7 @@ def build_report_for_antibiotic(
                     if active_coefs[idx] != 0:
                         feat_name = columns[idx]
                         if feat_name not in supporting_features:
-                            supporting_features.append(feat_name)
+                            statistical_features.append(feat_name)
                             reasons.append(
                                 f"{feat_name} — statistical association "
                                 f"(coefficient={coefs[idx]:.2f}; "
@@ -218,6 +217,7 @@ def build_report_for_antibiotic(
     # Evidence category
     evidence_category = _determine_evidence_category(
         supporting_features,
+        statistical_features,
         known_markers,
         model_contribution=prob_r - 0.5,
     )
@@ -228,7 +228,7 @@ def build_report_for_antibiotic(
     # Determine verdict
     if is_nocall:
         verdict = "nocall"
-        confidence = 1.0 - abs(prob_r - 0.5) * 2  # lower confidence when uncertain
+        confidence = max(prob_r, 1.0 - prob_r)
     elif prob_r >= 0.5:
         verdict = "fail"
         confidence = prob_r
@@ -251,10 +251,12 @@ def build_report_for_antibiotic(
 
     return {
         "antibiotic": antibiotic,
+        "probability_resistant": round(float(prob_r), 4),
         "verdict": verdict,
         "confidence": round(float(confidence), 4),
         "evidence_category": evidence_category,
         "supporting_features": supporting_features[:10],  # cap display
+        "statistical_features": statistical_features[:5],
         "target_present": target_present,
         "reasons": reasons[:5],
     }

@@ -1,0 +1,64 @@
+{
+  "selection_metric": "duplicate_weighted_grouped_train_oof_brier",
+  "tie_break_metric": "duplicate_weighted_grouped_train_oof_balanced_accuracy",
+  "calibration_split": "cal",
+  "final_split": "test_already_viewed_do_not_use_for_new_model_selection",
+  "models": [
+    {
+      "name": "l2_logistic",
+      "role": "current_app_baseline",
+      "status": "runnable",
+      "dependency": "scikit-learn",
+      "runner": "make train && make calibrate && make evaluate"
+    },
+    {
+      "name": "l1_logistic",
+      "role": "completed_reference",
+      "status": "runnable",
+      "dependency": "scikit-learn",
+      "runner": "python -m genome_firewall.model_ensemble --setups genotype_only --models l1_logistic"
+    },
+    {
+      "name": "hist_gradient_boosting",
+      "role": "completed_reference",
+      "status": "runnable",
+      "dependency": "scikit-learn",
+      "runner": "python -m genome_firewall.model_ensemble --setups genotype_only --models hist_gradient_boosting"
+    },
+    {
+      "name": "xgboost",
+      "role": "completed_reference",
+      "status": "runnable",
+      "dependency": "xgboost",
+      "runner": "python -m genome_firewall.model_ensemble --setups genotype_only --models xgboost"
+    },
+    {
+      "name": "soft_ensemble",
+      "role": "completed_historical_comparison",
+      "status": "runnable",
+      "dependency": "scikit-learn,xgboost",
+      "runner": "python -m genome_firewall.model_ensemble --setups genotype_only --voting inverse-brier"
+    },
+    {
+      "name": "elastic_net",
+      "role": "next_candidate",
+      "status": "implementation_pending",
+      "dependency": "scikit-learn",
+      "runner": null
+    },
+    {
+      "name": "explainable_boosting_machine",
+      "role": "next_candidate",
+      "status": "implementation_and_dependency_pending",
+      "dependency": "interpret",
+      "runner": null
+    },
+    {
+      "name": "tabpfn",
+      "role": "conditional_candidate",
+      "status": "dependency_and_sample_weight_check_pending",
+      "dependency": "tabpfn,torch,gated_model_checkpoint",
+      "runner": null
+    }
+  ]
+}

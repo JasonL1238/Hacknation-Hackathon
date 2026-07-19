@@ -7,6 +7,8 @@ reruns and the user can move back and forth without losing input.
 
 from __future__ import annotations
 
+import hashlib
+
 import streamlit as st
 
 from app.icons import icon
@@ -82,7 +84,7 @@ def render(store, user) -> None:
     C.page_header(
         "New analysis",
         subtitle="A controlled clinical submission. Species identification and genome "
-                 "reconstruction are performed outside Genome Firewall — this begins after QC.",
+                 "reconstruction are performed outside BioShield AI — this begins after QC.",
         icon_name="plus-square",
         crumbs=[("Analysis", None), ("New analysis", None)],
     )
@@ -179,7 +181,7 @@ def _step_specimen(store, w) -> None:
         '<div class="gf-safety" style="margin-bottom:12px"><span class="ico">'
         + icon("info", 16) +
         '</span><div><b>Species identification and genome reconstruction occur outside '
-        'Genome Firewall.</b> Enter the species from confirmed laboratory identification — '
+        'BioShield AI.</b> Enter the species from confirmed laboratory identification — '
         'the model does not identify organisms from raw samples.</div></div>',
         unsafe_allow_html=True)
     iso = w.setdefault("isolate", {})
@@ -222,7 +224,7 @@ def _step_specimen(store, w) -> None:
 def _step_genome(store, w) -> None:
     C.panel_open("Genome upload", eyebrow="Step 4 of 6", icon_name="upload-cloud")
     st.caption("Upload a reconstructed, quality-checked assembly (FASTA: .fasta / .fna / .fa). "
-               "Genome Firewall never reads DNA from a patient sample — only an assembled file.")
+               "BioShield AI never reads DNA from a patient sample — only an assembled file.")
 
     up = st.file_uploader("Genome FASTA", type=["fasta", "fna", "fa", "txt"],
                           label_visibility="collapsed")
@@ -230,11 +232,12 @@ def _step_genome(store, w) -> None:
 
     if up is not None:
         data = up.getvalue()
+        fingerprint = hashlib.sha256(data).hexdigest()
         # Validate through the service seam (real lightweight parsing).
-        if w.get("_genome_name") != up.name:
+        if w.get("_genome_fingerprint") != fingerprint:
             tmp = prov.create_analysis(patient_id="", case_id="", isolate_id="",
                                        species="Staphylococcus aureus",
-                                       model_version="genome-firewall-v0.1")
+                                       model_version="bioshield-xgboost-v1")
             sub = prov.validate_genome(tmp, filename=up.name, data=data)
             w["genome"] = {
                 "filename": sub.filename, "size_bytes": sub.size_bytes,
@@ -244,6 +247,8 @@ def _step_genome(store, w) -> None:
                 "qc_warnings": sub.qc_warnings,
             }
             w["_genome_name"] = up.name
+            w["_genome_fingerprint"] = fingerprint
+            w["_genome_bytes"] = data
 
     g = w.get("genome")
     if g:
@@ -323,7 +328,7 @@ def _step_review(store, w) -> None:
             ("Quality", g.get("qc_status", "—")),
         ])
         _review_block("Model", [
-            ("Model version", "genome-firewall-v0.1"),
+            ("Model version", "bioshield-xgboost-v1"),
             ("Species scope", "S. aureus"),
             ("Antibiotics", str(len(_DRUGS))),
             ("Outputs", "Per-drug verdict + confidence + evidence"),
@@ -366,7 +371,7 @@ def _step_review(store, w) -> None:
         prov = get_provider()
         analysis = prov.create_analysis(
             patient_id=p.id, case_id=case.id, isolate_id=case.isolate.id,
-            species=case.isolate.species, model_version="genome-firewall-v0.1")
+            species=case.isolate.species, model_version="bioshield-xgboost-v1")
         analysis.genome = GenomeSubmission(
             filename=g.get("filename", ""), size_bytes=g.get("size_bytes", 0),
             checksum=g.get("checksum", ""), sequence_count=g.get("sequence_count", 0),
@@ -374,10 +379,11 @@ def _step_review(store, w) -> None:
             gc_content=g.get("gc_content", 0.0), qc_status=g.get("qc_status", "passed"),
             qc_warnings=g.get("qc_warnings", []),
         )
+        analysis._fasta_bytes = w.pop("_genome_bytes", b"")  # type: ignore[attr-defined]
         store.add_analysis(case, analysis)
         w["analysis_id"] = analysis.id
 
-    _nav(5, can_next=(a1 and a2 and a3), next_label="Run Genome Firewall Analysis",
+    _nav(5, can_next=(a1 and a2 and a3), next_label="Run BioShield AI Analysis",
          on_next=_create_analysis)
 
 
@@ -402,7 +408,8 @@ def _step_submit(store, w) -> None:
         return
     prov = get_provider()
     if analysis.status == "draft":
-        prov.start_analysis(analysis)
+        with st.spinner("Annotating the genome and running all six resistance models…"):
+            prov.start_analysis(analysis)
 
     st.session_state["_toast"] = f"Analysis {analysis.id} submitted."
     # Clear the wizard so a new submission starts fresh, then hand off.

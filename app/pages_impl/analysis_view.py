@@ -130,11 +130,9 @@ def _render_failed(store, a) -> None:
     else:
         c1, c2, _ = st.columns([1.3, 1.3, 3])
         with c1:
-            if st.button("Retry analysis", type="primary", icon=":material/refresh:",
+            if st.button("Upload genome again", type="primary", icon=":material/upload:",
                          use_container_width=True):
-                get_provider().retry_analysis(a)
-                store.log(f"Analysis {a.id} retried", a.patient_id, a.case_id, a.id)
-                st.rerun()
+                nav_to("new_analysis")
         with c2:
             if st.button("Back to patient", icon=":material/arrow_back:",
                          use_container_width=True):
@@ -143,9 +141,8 @@ def _render_failed(store, a) -> None:
 
 def _render_cancelled(store, a) -> None:
     st.info("This analysis was cancelled. You can start a new analysis for this case at any time.")
-    if st.button("Retry analysis", type="primary", icon=":material/refresh:"):
-        get_provider().retry_analysis(a)
-        st.rerun()
+    if st.button("Start a new analysis", type="primary", icon=":material/note_add:"):
+        nav_to("new_analysis")
 
 
 def _elapsed(a) -> float:

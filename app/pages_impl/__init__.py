@@ -1,1 +1,1 @@
-"""Genome Firewall — page implementations (rendered inside the app shell)."""
+"""BioShield AI — page implementations (rendered inside the app shell)."""

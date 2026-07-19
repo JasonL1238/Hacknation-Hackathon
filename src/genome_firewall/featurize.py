@@ -73,31 +73,47 @@ def load_spec() -> dict:
     return json.loads(SPEC_PATH.read_text())
 
 
-def vectorize_fasta(fasta_path: str | Path, spec: dict | None = None) -> pd.Series:
-    """Inference path: annotate one FASTA and return a feature vector in frozen column
-    order. Unseen symbols (not in the spec) are ignored — the training column set is the
-    contract; Stage 2/3 handle genuinely novel genes via the OOD/no-call logic.
-    """
+def extract_fasta_features(
+    fasta_path: str | Path, spec: dict | None = None
+) -> tuple[pd.Series, set[str]]:
+    """Annotate one FASTA and return its frozen vector plus every AMR symbol found."""
     spec = spec or load_spec()
     fasta_path = Path(fasta_path)
+    actual_db = annotate.amrfinder_db_version()
+    expected_db = str(spec.get("amrfinder_db_version", "")).strip()
+    if expected_db and actual_db != expected_db:
+        raise RuntimeError(
+            "AMRFinderPlus database mismatch: "
+            f"model requires {expected_db}, but runtime provides {actual_db}."
+        )
     with tempfile.TemporaryDirectory() as tmp:
         out_tsv = Path(tmp) / "out.tsv"
-        subprocess.run(
+        completed = subprocess.run(
             [
-                "conda", "run", "-n", annotate.AMR_ENV, "amrfinder",
+                *annotate.amrfinder_command(),
                 "-n", str(fasta_path),
                 "--organism", ORGANISM_FLAG,
                 "--plus",
                 "--threads", str(annotate.THREADS_PER_JOB),
                 "-o", str(out_tsv),
             ],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True,
         )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "unknown error").strip()
+            raise RuntimeError(f"AMRFinderPlus annotation failed: {detail[:1000]}")
         present = parse_tsv(out_tsv)
-    return pd.Series(
+    vector = pd.Series(
         [1 if col in present else 0 for col in spec["columns"]],
         index=spec["columns"], dtype="int8", name=fasta_path.stem,
     )
+    return vector, present
+
+
+def vectorize_fasta(fasta_path: str | Path, spec: dict | None = None) -> pd.Series:
+    """Inference vector in frozen training-column order; unseen symbols are ignored."""
+    vector, _ = extract_fasta_features(fasta_path, spec)
+    return vector
 
 
 def run() -> None:

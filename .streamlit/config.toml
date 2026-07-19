@@ -1,4 +1,4 @@
-# Genome Firewall — Streamlit base theme.
+# BioShield AI — Streamlit base theme.
 # The full design system is injected as CSS by app/ui/theme.py; these base
 # tokens keep Streamlit's built-in widget accents (sliders, checkboxes, focus)
 # aligned with the refined blue brand accent. Status colors (green/red/amber)

@@ -12,6 +12,7 @@ dependencies = [
   "numpy",
   "pandas",
   "pyarrow",
+  "PyYAML",
   "scikit-learn>=1.8",
   "scipy>=1.11",
   "xgboost>=2.0",

@@ -41,32 +41,22 @@ def render(store, user) -> None:
         crumbs=[("Reports", None), (a.id, None)],
     )
 
-    # ── Header meta + export ─────────────────────────────────────────────────
-    meta_l, meta_r = st.columns([4.4, 1.4])
-    with meta_l:
-        st.markdown(
-            f'<div class="gf-meta"><div><div class="k">Analysis ID</div>'
-            f'<div class="v mono">{C.esc(a.id)}</div></div>'
-            f'<div><div class="k">Species</div><div class="v"><em>{C.esc(a.species)}</em></div></div>'
-            f'<div><div class="k">Isolate</div><div class="v mono">{C.esc(iso.lab_id if iso else "—")}</div></div>'
-            f'<div><div class="k">Model</div><div class="v mono">{C.esc(a.model_version)}</div></div>'
-            f'<div><div class="k">Completed</div><div class="v">{C.relative_time(a.completed_at or a.created_at)}</div></div>'
-            f'</div>'
-            f'<div class="gf-meta" style="margin-top:8px"><div><div class="k">Genome file</div>'
-            f'<div class="v mono">{C.esc(a.genome.filename if a.genome else "—")}</div></div>'
-            f'<div><div class="k">Quality</div><div class="v">'
-            f'{C.qc_badge(a.genome.qc_status if a.genome else "pending", small=True)}</div></div>'
-            f'<div><div class="k">Submission ID</div><div class="v mono">'
-            f'{C.esc(a.genome.checksum if a.genome else "—")}</div></div></div>',
-            unsafe_allow_html=True)
-    with meta_r:
-        st.write("")
-        st.download_button("Export report", data=_export_text(store, a),
-                           file_name=f"{a.id}_report.txt", mime="text/plain",
-                           use_container_width=True, icon=":material/download:")
-        st.download_button("Export JSON", data=_export_json(a),
-                           file_name=f"{a.id}.json", mime="application/json",
-                           use_container_width=True, icon=":material/data_object:")
+    # ── Header meta ───────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div class="gf-meta"><div><div class="k">Analysis ID</div>'
+        f'<div class="v mono">{C.esc(a.id)}</div></div>'
+        f'<div><div class="k">Species</div><div class="v"><em>{C.esc(a.species)}</em></div></div>'
+        f'<div><div class="k">Isolate</div><div class="v mono">{C.esc(iso.lab_id if iso else "—")}</div></div>'
+        f'<div><div class="k">Model</div><div class="v mono">{C.esc(a.model_version)}</div></div>'
+        f'<div><div class="k">Completed</div><div class="v">{C.relative_time(a.completed_at or a.created_at)}</div></div>'
+        f'</div>'
+        f'<div class="gf-meta" style="margin-top:8px"><div><div class="k">Genome file</div>'
+        f'<div class="v mono">{C.esc(a.genome.filename if a.genome else "—")}</div></div>'
+        f'<div><div class="k">Quality</div><div class="v">'
+        f'{C.qc_badge(a.genome.qc_status if a.genome else "pending", small=True)}</div></div>'
+        f'<div><div class="k">Submission ID</div><div class="v mono">'
+        f'{C.esc(a.genome.checksum if a.genome else "—")}</div></div></div>',
+        unsafe_allow_html=True)
 
     st.write("")
     C.safety_banner(
@@ -81,6 +71,14 @@ def render(store, user) -> None:
         for wmsg in a.overall_warnings:
             st.warning(wmsg)
         st.write("")
+
+    if a.detected_amr_features:
+        with st.expander(
+            f"AMRFinderPlus detected {len(a.detected_amr_features)} AMR gene/mutation feature(s)"
+        ):
+            genes = [f for f in a.detected_amr_features if "_" not in f]
+            mutations = [f for f in a.detected_amr_features if "_" in f]
+            st.markdown(C.gene_tags(genes, mutations, []), unsafe_allow_html=True)
 
     # ── AI plain-language summary (flag-gated, grounded on the structured report) ─
     _render_ai_summary(a)
@@ -175,10 +173,11 @@ def _result_row(r) -> None:
                         unsafe_allow_html=True)
         with head_r:
             pct = round(r.confidence * 100)
+            prob_r = round(r.resistance_probability * 100)
             st.markdown(
                 f'<div style="text-align:right"><span class="gf-conf-num gf-tnum" '
                 f'style="color:{color};font-size:1.25rem">{pct}%</span>'
-                f'<div class="gf-conf-cap">calibrated confidence</div></div>',
+                f'<div class="gf-conf-cap">class confidence · P(R) {prob_r}%</div></div>',
                 unsafe_allow_html=True)
 
         with st.expander("Evidence & explanation"):
@@ -237,7 +236,7 @@ def _export_text(store, a) -> str:
     case = store.case_of_analysis(a.id)
     iso = case.isolate if case else None
     L = []
-    L.append("GENOME FIREWALL — ANTIBIOTIC-RESPONSE REPORT")
+    L.append("BIOSHIELD AI — ANTIBIOTIC-RESPONSE REPORT")
     L.append("=" * 60)
     L.append("RESEARCH PROTOTYPE — confirm every result with standard laboratory")
     L.append("testing. Decision support only; a trained professional decides.")

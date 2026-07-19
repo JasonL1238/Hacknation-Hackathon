@@ -21,13 +21,13 @@ Decisions locked with the user:
 - **Win priority:** ML rigor & calibration is the primary judged axis. The Streamlit
   demo and responsible-AI framing are mandatory deliverables we execute well but do not
   over-invest in. Multimodal/OpenAI is optional polish, gated behind a flag.
-- **Model scope:** regularized logistic-regression **baseline** (the rubric's
-  recommended core) **+ a DL stretch**: ESM-2 protein embeddings over AMRFinderPlus-
-  flagged proteins, pooled per genome, compared honestly against the baseline on the
-  same splits.
+- **Model scope:** AMRFinderPlus genotype presence/absence features with a focused
+  tabular bakeoff: regularized logistic regression, HistGradientBoosting, XGBoost,
+  Explainable Boosting Machine, and a duplicate-aware soft-voting ensemble. TabPFN is
+  optional if its local runtime and sample-weight behavior are acceptable.
 
 Environment already verified on the build machine: conda 25.7, Docker 27.4, Python 3.13,
-scikit-learn 1.7, pandas 2.3, Streamlit 1.56, PyTorch 2.8 with **MPS (Apple GPU)**.
+scikit-learn 1.7, pandas 2.3, and Streamlit 1.56.
 AMRFinderPlus installs with `make amr-setup` (see Module 01 below).
 
 ---
@@ -59,14 +59,13 @@ against the current state; findings become the next tasks. Keep a running
 
 ---
 
-## Architecture (three required modules + stretch)
+## Architecture (three required modules)
 
 ```
 FASTA (S. aureus genome)
    │  Module 01 — Genome Reader
    ▼
 AMRFinderPlus (--organism Staphylococcus_aureus)  →  gene/mutation presence-absence matrix
-   │  (+ DL stretch: ESM-2 embeddings on flagged proteins)
    ▼  Module 02 — Predictor
 Per-antibiotic calibrated classifier  +  deterministic molecular-target gate
    │
@@ -78,7 +77,7 @@ held-out performance panel, mandatory "confirm with standard lab testing" banner
 ### Project structure
 ```
 genome-firewall/
-├── environment.yml            # conda env: python, sklearn, torch, streamlit, biopython, requests, fair-esm
+├── environment.yml            # conda env: python, sklearn, streamlit, biopython, requests
 ├── Makefile                   # download → annotate → featurize → split → train → calibrate → eval → app
 ├── config/
 │   └── saureus.yaml           # species, antibiotics, thresholds, paths, drug→target table pointer
@@ -96,8 +95,8 @@ genome-firewall/
 │   ├── calibrate.py           # isotonic/Platt calibration + reliability/Brier
 │   ├── nocall.py              # no-call logic + OOD detection
 │   ├── target_gate.py         # deterministic drug→target-present gate
-│   ├── embed_esm.py           # DL stretch: ESM-2 protein embeddings (MPS)
-│   ├── evaluate.py            # all metrics, per-group generalization, baseline-vs-DL
+│   ├── model_ensemble.py      # focused duplicate-aware tabular model bakeoff
+│   ├── evaluate.py            # all metrics and per-group generalization
 │   └── report.py              # structured per-antibiotic report object + evidence category
 ├── app/streamlit_app.py       # Module 03 demo
 ├── db/drugs_saureus.csv       # curated drug DB: name, class, target gene(s), markers
@@ -245,24 +244,12 @@ a plain-language clinician summary, **strictly grounded on the structured eviden
 
 ---
 
-## DL stretch — ESM-2 on AMR proteins (honest baseline comparison)
-
-Extract AMRFinderPlus-flagged protein sequences per genome, embed with **ESM-2**
-(`facebook/esm2_t12_35M` or `t30_150M`) on **MPS**, **mean-pool to one vector per
-genome**, concatenate with (or replace) the presence-absence features, retrain the
-per-antibiotic classifier. Compare against baseline on the **same splits + same
-calibration protocol**; report deltas in balanced accuracy / PR-AUC / Brier. Honest
-outcome is fine: if it doesn't beat the interpretable baseline, we say so — that's a
-rigor win, not a loss.
-
----
-
 ## Metrics reported (all on the hidden grouped-test split)
 
 Balanced accuracy; **recall for R and recall for S separately**; F1; AUROC; **PR-AUC per
 drug** (matters under imbalance); **Brier score + reliability diagram**; **no-call rate +
 accuracy-on-called**; **generalization broken down by genetic group** (incl. groups
-unseen in training). Baseline vs DL deltas side by side.
+unseen in training). Candidate-model deltas versus the L2 baseline side by side.
 
 ---
 
@@ -394,14 +381,13 @@ identical in shape/order to the training matrix?
 7. Metrics (`evaluate.py`): balanced accuracy, recall_R, recall_S, F1, AUROC, PR-AUC per
    drug, Brier, no-call rate, accuracy-on-called, **per-genetic-group** breakdown incl.
    unseen groups. Write `metrics.json` + PNGs.
-8. DL stretch (`embed_esm.py`): ESM-2 (`facebook/esm2_t12_35M`/`t30_150M`) on
-   AMRFinder-flagged proteins, mean-pool per genome (MPS), concat/replace features,
-   retrain on the **same splits + same calibration**, report deltas honestly. Not
-   beating the baseline is a valid, honest result.
+8. Focused bakeoff (`model_ensemble.py` and `experiments/model_bakeoff/`): compare the
+   retained genotype-only models on the **same duplicate-aware splits + same
+   calibration protocol**. Prefer the simplest model within uncertainty of the best.
 
 **Definition of done:** Splits provably leak-free; calibration curve tracks the diagonal
 on held-out; `report.py` emits DATA_SPEC-valid objects; `metrics.json` has per-group
-breakdown; DL-vs-baseline deltas computed on identical splits.
+breakdown; candidate-vs-baseline deltas computed on identical splits.
 
 **Self-questioning before done:** Could any near-identical genome span train/test? Is
 calibration fit only on `cal`? Is any "work" verdict resting on marker-absence without
@@ -495,4 +481,5 @@ Run the self-questioning checklist continuously, not just at the end; log to
    a known **MRSA/mecA+** genome), verify: oxacillin → likely-to-fail with (i)
    known-gene evidence citing mecA; a susceptible drug → likely-to-work with target-gate
    satisfied; a weak-evidence case → no-call. Mandatory lab-confirmation banner present.
-5. Run DL comparison; confirm the report states baseline-vs-ESM2 deltas honestly.
+5. Run the focused genotype-only bakeoff; confirm every candidate uses the same grouped
+   splits and that the report includes each base learner, not only the selected model.

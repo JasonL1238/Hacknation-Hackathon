@@ -1,5 +1,11 @@
 # L2-Regularized Logistic Regression
 
+## Current status and duplicate policy
+
+This is the historical baseline and the reference for every research comparison. The
+app artifact was retrained on the fixed Mash split. For any new research bakeoff, also
+fit and report with `1 / labeled dedup-group size` sample weights.
+
 > **One-liner:** A ridge-penalized linear classifier that turns AMR gene presence/absence into a per-antibiotic R/S probability, and serves as the project's reference baseline.
 > **Category:** linear ·
 > **Runs on:** local CPU ·
@@ -15,12 +21,13 @@ This is **THE baseline every other model is compared against** — always run it
 ## Data interface (the contract this code must respect)
 - Reads `data/processed/features.parquet` (index `genome_id`, binary int8 gene/mutation columns) as X.
 - Reads `data/processed/labels.csv` and filters to one antibiotic at a time; maps `label` R→1, S→0.
-- Reads `data/processed/splits.json` for the grouped train/cal/test assignment and `cluster_id`; never re-split randomly.
+- Reads `data/processed/splits.json` for split, `cluster_id`, and `dedup_group_id`; never re-split randomly.
 - Fit on **train** only; fit calibration on **cal** only; report all metrics on **test** only.
 - Reads `db/drugs_saureus.csv` so the downstream target gate can veto a "likely-to-work" call when the drug's molecular target is absent.
 
 ## Adversarial checks it must survive
-- **No leakage (Rule 1):** Use `splits.json` verbatim; confirm no `cluster_id` appears in more than one split before fitting. A skeptical judge will grep for a cluster that leaked across train and test — close that off explicitly.
+- **No leakage (Rule 1):** Use `splits.json` verbatim; confirm no `cluster_id` or `dedup_group_id` spans splits.
+- **Duplicate control:** within each antibiotic/fitting subset, weight each labeled row by `1 / labeled dedup-group size` and report ordinary plus duplicate-weighted metrics.
 - **Calibration (Rule 2):** Even logistic outputs can be over/under-confident under class imbalance; fit calibration on `cal` and report a reliability diagram + Brier on `test`, not on the training data.
 - **Honest explanations (Rule 5):** A large coefficient on a gene is a **statistical association given this dataset**, not proof the gene causes resistance. Label catalog hits (`known_markers` in `drugs_saureus.csv`) separately from statistical-only coefficients; never present a coefficient as biological causation.
 - **Clonal memorization:** Because *S. aureus* is highly clonal, a coefficient may be tracking a lineage rather than a mechanism. Mitigate by reporting per-genetic-group metrics (including unseen clusters) and flagging genes that only ever co-occur within one cluster.
@@ -50,7 +57,7 @@ Write complete, runnable Python (scikit-learn, pandas, numpy, matplotlib) that t
 DATA CONTRACT (files already exist on disk):
 - data/processed/features.parquet: one row per genome, index = genome_id (str). Columns are binary int8 presence/absence of AMR gene symbols (e.g. mecA, blaZ, ermC, tetK, aac(6')-aph(2'')) and named point mutations (e.g. gyrA_S84L, grlA_S80F). Column set is the union across the dataset; absent = 0; no missing values. Tens-to-low-hundreds of sparse binary columns, hundreds-to-low-thousands of genomes.
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant/likely-to-fail, S = susceptible/likely-to-work), source, method. One row per (genome_id, antibiotic). About 4-6 antibiotics (e.g. erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
-- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
+- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int, "dedup_group_id": int, "dedup_group_size": int}. Neither a cluster nor duplicate family spans splits.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name. Used for a deterministic target gate.
 
 PROTOCOL (obey exactly):
@@ -58,7 +65,8 @@ PROTOCOL (obey exactly):
 2. Fit the model on the TRAIN split ONLY. Fit probability calibration on the CAL split ONLY. Report ALL metrics on the TEST split ONLY.
 3. NEVER re-split randomly and NEVER let a cluster span splits — always use splits.json. If you need internal validation for hyperparameter selection, use GroupKFold on cluster_id WITHIN the train split only; never touch cal or test.
 4. Handle class imbalance with class_weight="balanced". Do NOT use SMOTE or synthetic oversampling.
-5. Emit calibrated probabilities and implement a no-call rule: return "no-call" when the calibrated probability is in the ambiguous band ~0.4-0.6. Also expose a hook for a target gate (if the drug's target_genes are all absent in a genome, do not output "likely to work" from marker absence alone).
+5. Pass normalized sample_weight = 1 / labeled dedup-group size in fitting and calibration, and use those weights for duplicate-weighted metrics.
+6. Emit calibrated probabilities and implement a no-call rule: return "no-call" when the calibrated probability is in the ambiguous band ~0.4-0.6. Also expose a hook for a target gate (if the drug's target_genes are all absent in a genome, do not output "likely to work" from marker absence alone).
 
 MODEL SPECIFICS:
 - Use sklearn.linear_model.LogisticRegression with penalty="l2", class_weight="balanced", solver="liblinear" (or lbfgs), max_iter=1000.

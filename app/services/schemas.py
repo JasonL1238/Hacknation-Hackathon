@@ -1,5 +1,5 @@
 """
-Genome Firewall — typed domain schemas.
+BioShield AI — typed domain schemas.
 
 The clinical data model is a strict hierarchy:
 
@@ -208,6 +208,7 @@ class AntibioticResult:
     drug_class: str = ""
     prediction: str = Prediction.NO_CALL.value
     confidence: float = 0.0                     # calibrated, 0..1
+    resistance_probability: float = 0.0          # calibrated P(resistant), 0..1
     confidence_band: tuple[float, float] = (0.0, 0.0)
     evidence_category: str = EvidenceCategory.NO_SIGNAL.value
     target_gate: str = TargetGate.UNKNOWN.value
@@ -225,6 +226,9 @@ class AntibioticResult:
         pred = _LEGACY_TO_PRED.get(r.get("verdict", "nocall"), Prediction.NO_CALL)
         ev = _LEGACY_TO_EV.get(r.get("evidence_category", "iii"), EvidenceCategory.NO_SIGNAL)
         conf = float(r.get("confidence", 0.0) or 0.0)
+        prob_r = r.get("probability_resistant")
+        if prob_r is None:
+            prob_r = conf if pred is Prediction.FAIL else 1.0 - conf
         feats = list(r.get("supporting_features", []) or [])
         genes = [f for f in feats if "_" not in f]
         muts = [f for f in feats if "_" in f]
@@ -233,7 +237,9 @@ class AntibioticResult:
             drug_class=r.get("drug_class", ""),
             prediction=pred.value,
             confidence=conf,
-            confidence_band=(max(0.0, conf - 0.06), min(1.0, conf + 0.06)),
+            resistance_probability=float(prob_r),
+            # No uncertainty interval is inferred from a single probability.
+            confidence_band=(conf, conf),
             evidence_category=ev.value,
             target_gate=(TargetGate.PASSED.value if r.get("target_present")
                          else TargetGate.FAILED.value),
@@ -241,6 +247,7 @@ class AntibioticResult:
             no_call_threshold_hit=pred is Prediction.NO_CALL,
             supporting_genes=genes,
             supporting_mutations=muts,
+            statistical_features=list(r.get("statistical_features", []) or []),
             explanation="; ".join(r.get("reasons", []) or []),
         )
 
@@ -251,8 +258,10 @@ class AntibioticResult:
             "antibiotic": self.antibiotic.lower(),
             "verdict": _PRED_TO_LEGACY.get(pred, "nocall"),
             "confidence": round(self.confidence, 4),
+            "probability_resistant": round(self.resistance_probability, 4),
             "evidence_category": _EV_TO_LEGACY.get(ev, "iii"),
             "supporting_features": self.supporting_genes + self.supporting_mutations,
+            "statistical_features": self.statistical_features,
             "target_present": self.target_gate == TargetGate.PASSED.value,
             "reasons": [self.explanation] if self.explanation else [],
         }
@@ -265,10 +274,11 @@ class Analysis:
     case_id: str = ""
     isolate_id: str = ""
     status: str = AnalysisStatus.DRAFT.value
-    model_version: str = "genome-firewall-v0.1"
+    model_version: str = "bioshield-xgboost-v1"
     species: str = "Staphylococcus aureus"
     genome: GenomeSubmission | None = None
     results: list[AntibioticResult] = field(default_factory=list)
+    detected_amr_features: list[str] = field(default_factory=list)
     overall_warnings: list[str] = field(default_factory=list)
     requires_lab_confirmation: bool = True
     current_stage: int = 0                       # index into PIPELINE_STAGES

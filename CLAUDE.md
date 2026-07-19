@@ -93,7 +93,6 @@ work on a different stage instead of faking its input.
 (https://github.com/ncbi/amr) is installed with `make amr-setup`
 (`scripts/setup_amrfinder.sh`), which sets up a separate `amr` conda env (falls back to
 Docker `ncbi/amr` if conda is unavailable) — see PLAN.md's Module 01 / Stage 2 section.
-Apple Silicon: PyTorch uses **MPS** for ESM-2.
 
 ## Definition of done for the whole project
 `make all` runs download → annotate → featurize → split → train → calibrate → evaluate

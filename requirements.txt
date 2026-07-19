@@ -1,8 +1,6 @@
-# Runtime deps for the Streamlit demo (pip-only, for Streamlit Community Cloud /
-# Hugging Face Spaces / any container host). The full research pipeline uses conda
-# (see environment.yml) for bioconda binaries (mash, AMRFinderPlus) that the demo
-# does NOT need — the app runs on the bundled mock/precomputed demo brain when no
-# trained models are present on disk.
+# Python runtime dependencies. AMRFinderPlus is native software and is installed
+# through environment.yml on Streamlit Community Cloud.
+.
 streamlit>=1.33
 supabase>=2.4
 python-dotenv

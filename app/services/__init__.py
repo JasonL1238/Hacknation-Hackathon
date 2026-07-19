@@ -1,1 +1,1 @@
-"""Genome Firewall — application services (domain, store, analysis provider)."""
+"""BioShield AI — application services (domain, store, analysis provider)."""

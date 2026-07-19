@@ -1,5 +1,5 @@
 """
-Authentication for Genome Firewall.
+Authentication for BioShield AI.
 
 Email/password + Google OAuth via Supabase, plus a zero-setup guest/demo mode.
 Supabase is imported lazily so the app boots and the demo runs even when the
@@ -62,7 +62,7 @@ def is_guest() -> bool:
 def enter_guest_mode() -> None:
     st.session_state["user"] = {
         "id": "guest",
-        "email": "demo.clinician@genomefirewall.dev",
+        "email": "demo.clinician@bioshield.ai",
         "user_metadata": {"full_name": "Dr. Demo Clinician"},
         "is_guest": True,
     }
@@ -164,14 +164,20 @@ def _get_redirect_url() -> str:
 _LOGIN_CSS = r"""
 <style>
 [data-testid="stSidebar"] { display:none !important; }
-[data-testid="stAppViewContainer"] .main .block-container { max-width:1080px; padding-top:52px; }
+[data-testid="stHeader"] { display:none !important; }
+/* Lock the sign-in view to the viewport so it never scrolls. */
+html, body, [data-testid="stAppViewContainer"] { height:100vh !important; overflow:hidden !important; }
+[data-testid="stAppViewContainer"] > .main { overflow:hidden !important; }
+[data-testid="stAppViewContainer"] .main .block-container {
+  max-width:1080px; padding-top:0 !important; padding-bottom:0 !important;
+  min-height:100vh; display:flex; flex-direction:column; justify-content:center; }
 /* Left: product preview panel (deep navy) — a self-contained card */
 .gf-auth-left { background:
     radial-gradient(680px 320px at 12% -8%, rgba(56,189,248,.16), transparent 60%),
     radial-gradient(560px 340px at 108% 112%, rgba(37,99,235,.24), transparent 58%),
     var(--gf-nav);
-  color:#e2e8f0; padding:34px 32px 30px; display:flex; flex-direction:column; gap:18px;
-  border-radius:18px; box-shadow:var(--gf-sh-3); height:100%; min-height:560px; }
+  color:#e2e8f0; padding:28px 30px 26px; display:flex; flex-direction:column; gap:15px;
+  border-radius:18px; box-shadow:var(--gf-sh-3); height:100%; }
 .gf-auth-brand { display:flex; align-items:center; gap:12px; }
 .gf-auth-brand .m { width:40px; height:40px; border-radius:11px; display:grid; place-items:center;
   color:#fff; background:linear-gradient(150deg,var(--gf-brand-2),var(--gf-brand-3));
@@ -223,7 +229,7 @@ def render_login_page() -> None:
     left = (
         '<div class="gf-auth-left">'
         f'<div class="gf-auth-brand"><div class="m">{icon("shield-check", 22)}</div>'
-        '<div><b>Genome Firewall</b><span>Clinical AMR Intelligence</span></div></div>'
+        '<div><b>BioShield AI</b><span>Clinical AMR Intelligence</span></div></div>'
         '<div class="gf-auth-hl">Calibrated antibiotic-resistance decision support for '
         '<em>Staphylococcus&nbsp;aureus</em>.</div>'
         '<div class="gf-auth-lead">Submit a reconstructed, quality-checked genome and review a '

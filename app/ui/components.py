@@ -1,5 +1,5 @@
 """
-Genome Firewall — reusable presentation components.
+BioShield AI — reusable presentation components.
 
 Two things live here:
   • COMPONENT_CSS — component-scoped styles injected once by theme.inject().

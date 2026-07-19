@@ -1,5 +1,5 @@
 """
-Genome Firewall — demo data store (session-state repository).
+BioShield AI — demo data store (session-state repository).
 
 Holds the full clinical hierarchy (patients → cases → isolates → analyses →
 results) in Streamlit session state and seeds it with clearly-labeled SYNTHETIC

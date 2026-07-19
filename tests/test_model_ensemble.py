@@ -3,47 +3,65 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 
 from genome_firewall.model_ensemble import (
+    FeatureSetup,
     ScoreCalibrator,
+    build_model,
     compute_metrics,
     duplicate_weights,
     load_feature_setups,
     load_metadata,
 )
+from genome_firewall.serving import CalibratedClassifier, SoftVotingEnsemble
+
+
+class _FixedProbabilityModel:
+    def __init__(self, probability):
+        self.probability = probability
+
+    def predict_proba(self, X):
+        p = np.full(len(X), self.probability)
+        return np.column_stack([1 - p, p])
+
+
+class _IdentityCalibrator:
+    def predict(self, probability):
+        return np.asarray(probability)
 
 
 class EnsembleDataTests(unittest.TestCase):
+    def test_l1_logistic_uses_l1_penalty(self):
+        setup = FeatureSetup(
+            name="genotype_only",
+            frame=pd.DataFrame({"geno__x": [0, 1]}),
+            genotype_columns=("geno__x",),
+        )
+        model = build_model("l1_logistic", {"C": 1.0}, setup, np.array([0, 1]), 42)
+        self.assertEqual(model.named_steps["model"].l1_ratio, 1.0)
+
     def test_duplicate_family_has_one_total_vote(self):
         groups = pd.Series(["a", "a", "a", "b", "c", "c"])
         weights = duplicate_weights(groups)
         totals = pd.Series(weights).groupby(groups).sum()
         np.testing.assert_allclose(totals.to_numpy(), np.ones(3))
 
-    def test_embedding_setups_are_aligned_and_prefixed(self):
+    def test_genotype_setup_is_indexed_and_prefixed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             genotype = pd.DataFrame(
                 {"mecA": [1, 0], "blaZ": [0, 1]},
                 index=pd.Index(["g1", "g2"], name="genome_id"),
             )
-            # Deliberately reverse the embedding order; genome_id must realign it.
-            embedding = pd.DataFrame(
-                {"emb_0": [20.0, 10.0]},
-                index=pd.Index(["g2", "g1"], name="genome_id"),
-            )
             genotype_path = root / "features.parquet"
-            embedding_path = root / "esm2.parquet"
             genotype.to_parquet(genotype_path)
-            embedding.to_parquet(embedding_path)
-            setups = load_feature_setups(genotype_path, esm2_path=embedding_path)
-            self.assertEqual(
-                set(setups), {"genotype_only", "esm2_only", "genotype_plus_esm2"}
-            )
-            self.assertEqual(setups["esm2_only"].frame.loc["g1", "esm2__emb_0"], 10.0)
-            self.assertIn("geno__mecA", setups["genotype_plus_esm2"].frame.columns)
+            setups = load_feature_setups(genotype_path)
+            self.assertEqual(set(setups), {"genotype_only"})
+            self.assertEqual(list(setups["genotype_only"].frame.index), ["g1", "g2"])
+            self.assertIn("geno__mecA", setups["genotype_only"].frame.columns)
 
     def test_cluster_leakage_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,6 +92,37 @@ class EnsembleDataTests(unittest.TestCase):
 
 
 class EnsembleMetricTests(unittest.TestCase):
+    def test_calibrated_classifier_accepts_frozen_numpy_schema(self):
+        model = CalibratedClassifier(
+            estimator=_FixedProbabilityModel(0.7),
+            calibrator=_IdentityCalibrator(),
+            feature_columns=["geno__a", "geno__b"],
+        )
+        self.assertAlmostEqual(model.predict_proba(np.array([[1, 0]]))[0, 1], 0.7)
+
+    def test_serving_ensemble_uses_saved_weights_and_named_schema(self):
+        ensemble = SoftVotingEnsemble(
+            members=[_FixedProbabilityModel(0.2), _FixedProbabilityModel(0.8)],
+            member_names=["low", "high"],
+            weights=[0.25, 0.75],
+            feature_columns=["geno__a", "geno__b"],
+            calibrator=_IdentityCalibrator(),
+        )
+        probability = ensemble.predict_proba(np.array([[1, 0]]))[0, 1]
+        self.assertAlmostEqual(probability, 0.65)
+    def test_calibrator_artifact_round_trip(self):
+        raw = np.array([0.05, 0.2, 0.7, 0.95])
+        y = np.array([0, 0, 1, 1])
+        calibrator = ScoreCalibrator("sigmoid").fit(raw, y, np.ones(4))
+        self.assertEqual(
+            calibrator.__class__.__module__, "genome_firewall.ensemble_calibration"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "calibrator.joblib"
+            joblib.dump(calibrator, path)
+            restored = joblib.load(path)
+        np.testing.assert_allclose(restored.predict(raw), calibrator.predict(raw))
+
     def test_calibrator_and_metrics_are_bounded(self):
         raw = np.array([0.05, 0.2, 0.7, 0.95])
         y = np.array([0, 0, 1, 1])

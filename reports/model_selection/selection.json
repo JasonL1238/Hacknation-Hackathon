@@ -1,0 +1,76 @@
+{
+  "candidates": [
+    "l2_logistic",
+    "l1_logistic",
+    "hist_gradient_boosting",
+    "random_forest",
+    "extra_trees",
+    "bernoulli_nb",
+    "knn",
+    "xgboost",
+    "lightgbm"
+  ],
+  "antibiotics": [
+    "cefoxitin",
+    "ciprofloxacin",
+    "clindamycin",
+    "erythromycin",
+    "gentamicin",
+    "tetracycline"
+  ],
+  "ensemble_size": 3,
+  "selected_trio": [
+    "l2_logistic",
+    "l1_logistic",
+    "hist_gradient_boosting"
+  ],
+  "selection_rule": "best Borda composite of mean-across-drugs dedup-weighted train grouped-OOF Brier (lower) and weighted balanced accuracy (higher); OOF Brier tie-break; global fixed trio",
+  "calibration": "isotonic",
+  "nocall_band": [
+    0.4,
+    0.6
+  ],
+  "seed": 42,
+  "trio_ranking_top5": [
+    {
+      "members": "l2_logistic+l1_logistic+hist_gradient_boosting",
+      "mean_oof_weighted_brier": 0.10928469093102111,
+      "mean_oof_weighted_balanced_accuracy": 0.8516965463294542,
+      "rank_brier": 3.0,
+      "rank_balanced_accuracy": 1.0,
+      "selection_score": 2.0
+    },
+    {
+      "members": "l1_logistic+hist_gradient_boosting+random_forest",
+      "mean_oof_weighted_brier": 0.10840199777640774,
+      "mean_oof_weighted_balanced_accuracy": 0.8474861914942764,
+      "rank_brier": 1.0,
+      "rank_balanced_accuracy": 4.0,
+      "selection_score": 2.5
+    },
+    {
+      "members": "l1_logistic+hist_gradient_boosting+extra_trees",
+      "mean_oof_weighted_brier": 0.10845805207763017,
+      "mean_oof_weighted_balanced_accuracy": 0.8476533833700555,
+      "rank_brier": 2.0,
+      "rank_balanced_accuracy": 3.0,
+      "selection_score": 2.5
+    },
+    {
+      "members": "l1_logistic+hist_gradient_boosting+xgboost",
+      "mean_oof_weighted_brier": 0.10942151123615819,
+      "mean_oof_weighted_balanced_accuracy": 0.8486268622497,
+      "rank_brier": 4.0,
+      "rank_balanced_accuracy": 2.0,
+      "selection_score": 3.0
+    },
+    {
+      "members": "l2_logistic+hist_gradient_boosting+random_forest",
+      "mean_oof_weighted_brier": 0.11112172956791712,
+      "mean_oof_weighted_balanced_accuracy": 0.8439946485611274,
+      "rank_brier": 6.0,
+      "rank_balanced_accuracy": 7.0,
+      "selection_score": 6.5
+    }
+  ]
+}

@@ -1,5 +1,12 @@
 # TabPFN
 
+## Current status and duplicate policy
+
+This is a next candidate, not an implemented result. Run it only if the installed TabPFN
+classifier can honor `sample_weight` during fit. Use normalized inverse labeled
+`dedup_group_id` weights. If that API cannot accept training weights, record the model as
+incompatible and skip it rather than silently allowing duplicate families to dominate.
+
 > **One-liner:** A pretrained transformer that performs in-context Bayesian-style classification on small tabular datasets with no gradient training at fit time.
 > **Category:** tabular-DL (foundation model) ·
 > **Runs on:** local CPU/GPU ·
@@ -15,7 +22,7 @@ Prefer TabPFN when the per-antibiotic dataset fits inside its sample/feature lim
 ## Data interface (the contract this code must respect)
 - Read `data/processed/features.parquet` (index `genome_id`, int8 binary columns) as X.
 - Read `data/processed/labels.csv`; per antibiotic build the R/S target aligned to feature rows.
-- Read `data/processed/splits.json` for `train` / `cal` / `test` assignment and `cluster_id`.
+- Read `data/processed/splits.json` for split, `cluster_id`, and `dedup_group_id`.
 - Condition (fit) on the **train** split ONLY. Assess/adjust calibration on **cal** ONLY. Report metrics on **test** ONLY.
 - Check the installed TabPFN version's documented sample and feature limits; if train exceeds them, subsample training rows (respecting clusters — never split a cluster) or select the top features, and record what was dropped.
 
@@ -51,7 +58,7 @@ Write complete, runnable Python that uses TabPFN (the pretrained tabular foundat
 DATA CONTRACT (assume these files exist, paths as given):
 - data/processed/features.parquet: one row per genome, index = genome_id (str). Columns are binary int8 presence/absence of AMR gene symbols (e.g. mecA, blaZ, ermC, tetK, aac(6')-aph(2'')) and named point mutations (e.g. gyrA_S84L, grlA_S80F). Union of columns across the dataset; absent = 0; no missing values. Tens-to-low-hundreds of sparse binary columns, hundreds-to-low-thousands of genomes.
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant / likely-to-fail, S = susceptible / likely-to-work), source, method. One row per (genome_id, antibiotic). ~4-6 antibiotics (erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
-- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are entirely unseen in training.
+- data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int, "dedup_group_id": int, "dedup_group_size": int}. Neither a cluster nor duplicate family spans splits.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name.
 
 PROTOCOL (obey exactly):
@@ -59,6 +66,7 @@ PROTOCOL (obey exactly):
 2. Condition (fit) TabPFN on the TRAIN split ONLY. Assess/adjust probability calibration on the CAL split ONLY. Report ALL metrics on the TEST split ONLY.
 3. NEVER re-split randomly and NEVER let a cluster_id span splits — always use splits.json. Never place cal or test genomes into TabPFN's in-context training set.
 4. Handle class imbalance honestly (report balanced accuracy, recall_R, recall_S); do NOT use synthetic oversampling.
+5. Require fit-time sample_weight support. Use normalized sample_weight = 1 / labeled dedup-group size. If the installed TabPFN API does not support this, stop and report incompatibility; do not run a duplicate-unaware fallback.
 
 MODEL SPECIFICS:
 - Use the TabPFN classifier (import from the tabpfn package). FIRST check the installed TabPFN v2 documented limits on number of samples and number of features. If the TRAIN split exceeds them, subsample training rows WITHOUT splitting any cluster_id, or select the top-k most informative binary features, and print exactly how many rows/features were dropped.
