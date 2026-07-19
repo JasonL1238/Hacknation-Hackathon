@@ -28,4 +28,8 @@ ENV HOME=/home/mambauser \
 
 EXPOSE 7860
 
-CMD ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=7860"]
+# Run via `micromamba run` explicitly rather than relying on the base image's
+# _entrypoint.sh to activate ENV_NAME: HF Spaces' Docker runner does not
+# reliably invoke that entrypoint, which left `streamlit` off PATH at runtime
+# (exit 127, "streamlit: not found") even though it builds fine into the env.
+CMD ["micromamba", "run", "-n", "genome-firewall-cloud", "streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=7860"]
