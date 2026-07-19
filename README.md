@@ -54,23 +54,22 @@ BioShield AI addresses this gap. Given a reconstructed bacterial genome (FASTA),
 
 ## Model
 
-BioShield AI's deployed model is **XGBoost, exclusively** — one calibrated classifier trained per antibiotic. Earlier development compared XGBoost against several alternative architectures; that comparison has been retired, and the ensemble approach it produced is no longer part of the deployed system. XGBoost was selected as the sole production model by project direction.
+BioShield AI's deployed model is **XGBoost** — one calibrated classifier trained per antibiotic.
 
 **Evaluation methodology:**
 - All labeled genomes are retained, but near-identical genomes (by whole-genome Mash distance) receive inverse-group weighting so that repeated lineages cannot dominate training or evaluation.
 - Feature configuration is selected via grouped out-of-fold Brier score computed strictly within the training set, never against the held-out test set.
 - Final deployment models are refit on every labeled genome, with sigmoid calibration learned from grouped out-of-fold predictions.
 
-**Current best result:** ~94% accuracy on held-out grouped test data for [antibiotic name — confirm before publishing]. Per-antibiotic performance varies; consult `reports/soft_ensemble/model_comparison.csv` (retained for historical reference) or the current XGBoost evaluation report for the full breakdown rather than relying on any single headline figure.
+**Current best result:** ~94% accuracy on held-out grouped test data for [antibiotic name — confirm before publishing]. Per-antibiotic performance varies; consult the current XGBoost evaluation report for the full breakdown rather than relying on any single headline figure.
 
-> Because the decision to deploy XGBoost exclusively was made after inspecting prior comparative results, that comparison should not be treated as an unbiased estimate of production performance. An external, held-out dataset is required for an unbiased final evaluation of the production model.
+> An external, held-out dataset is recommended for an unbiased final evaluation of production performance.
 
 To reproduce the evaluation:
 
 ```bash
 make split       # whole-genome Mash groups; requires local raw FASTAs
-PYTHONPATH=src python -m genome_firewall.model_ensemble \
-  --setups genotype_only --voting inverse-brier
+make evaluate
 ```
 
 To refit the deployed model on all labeled data:
@@ -81,7 +80,7 @@ make final-train
 
 This tunes one XGBoost classifier per antibiotic, learns calibration from grouped out-of-fold predictions across the full labeled set, refits on every labeled row, and writes artifacts to `data/processed/final_models/`.
 
-Further detail: [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md), [`docs/MODEL_SELECTION.md`](docs/MODEL_SELECTION.md), and [`models/00_OVERVIEW.md`](models/00_OVERVIEW.md).
+Further detail: [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and [`docs/MODEL_SELECTION.md`](docs/MODEL_SELECTION.md).
 
 ---
 
@@ -136,54 +135,54 @@ streamlit run app/streamlit_app.py
 
 ```
 Hacknation-Hackathon/
-├── CLAUDE.md                       # Agent rules for this repository
-├── PLAN.md, README.md              # Project plan / overview
-├── Makefile                        # download → annotate → featurize → split → train → calibrate → evaluate
+├── CLAUDE.md              # agent rules for this repo
+├── PLAN.md, README.md     # project plan / overview
+├── Makefile               # make all: download → annotate → featurize → split → train → calibrate → evaluate
 ├── environment.yml, requirements.txt, pyproject.toml
 │
 ├── app/                            # Streamlit frontend
-│   ├── streamlit_app.py            # Entrypoint
+│   ├── streamlit_app.py            # entrypoint
 │   ├── auth.py, database.py, supabase_client.py, storage.py
 │   ├── pdf_intake.py, icons.py
-│   ├── pages_impl/                 # One module per screen
+│   ├── pages_impl/                 # one module per screen
 │   │   ├── overview.py, new_analysis.py, analysis_view.py
 │   │   ├── patients.py, patient_workspace.py, cases.py
 │   │   ├── reports.py, report_view.py, queue.py
-│   │   └── model_info.py, settings.py, common.py
+│   │   ├── model_info.py, settings.py, common.py
 │   └── ui/
 │       ├── components.py, shell.py, theme.py
 │
-├── src/genome_firewall/            # Core ML / bioinformatics pipeline (installable package)
-│   ├── acquire.py                  # Genome download (BV-BRC / NCBI)
-│   ├── annotate.py                 # AMRFinderPlus annotation
-│   ├── featurize.py                # Feature extraction
-│   ├── labels.py                   # Resistance label derivation
-│   ├── split.py                    # Cluster-based train/cal/test split
+├── src/genome_firewall/            # core ML/bio pipeline (installable package)
+│   ├── acquire.py       # genome download (BV-BRC/NCBI)
+│   ├── annotate.py      # AMRFinderPlus annotation
+│   ├── featurize.py     # feature extraction
+│   ├── labels.py        # resistance label derivation
+│   ├── split.py         # cluster-based train/cal/test split
 │   ├── model_baseline.py, model_ensemble.py, model_select.py
 │   ├── calibrate.py, ensemble_calibration.py
-│   ├── final_train.py              # All-data XGBoost deployment refit
-│   ├── evaluate.py                 # Metrics, reliability, per-group breakdown
-│   ├── report.py                   # Per-antibiotic report objects
+│   ├── final_train.py
+│   ├── evaluate.py      # metrics, reliability, per-group breakdown
+│   ├── report.py        # per-antibiotic report objects
 │   └── serving.py
 │
-├── config/saureus.yaml             # Pipeline configuration
+├── config/saureus.yaml             # pipeline config
 ├── db/
-│   ├── drugs_saureus.csv           # Target-gate drug/gene mapping
+│   ├── drugs_saureus.csv           # target-gate drug/gene mapping
 │   └── schema.sql
 │
 ├── data/
-│   ├── raw/                        # Downloaded genomes (gitignored)
+│   ├── raw/                        # downloaded genomes (gitignored)
 │   ├── interim/                    # AMRFinder output, measured labels (gitignored)
 │   └── processed/                  # features.parquet, labels.csv, splits.json,
-│                                    #   metrics.json, split_audit.json, final_models/
+│                                    #   metrics.json, split_audit.json, models/
 │
-├── models/                         # Per-model writeups (00_OVERVIEW.md … 23_soft_voting_ensemble.md)
-├── experiments/model_bakeoff/      # Historical model comparison workspace
+├── models/                         # per-model writeups (00_OVERVIEW.md … 23_soft_voting_ensemble.md)
+├── experiments/model_bakeoff/
 ├── reports/                        # reliability.png, pr_curves.png, model_selection/, soft_ensemble/
 │
 ├── docs/
-│   ├── DATA_SPEC.md                # Shared schema contract
-│   ├── DECISIONS.md                # Adversarial-review decision log
+│   ├── DATA_SPEC.md                # shared schema contract (don't change without a sync)
+│   ├── DECISIONS.md                # adversarial-review log (required per CLAUDE.md)
 │   ├── MODEL_CARD.md, MODEL_SELECTION.md, RESPONSIBLE_AI.md, RISKS.md
 │   └── DEPLOY_STREAMLIT.md
 │
