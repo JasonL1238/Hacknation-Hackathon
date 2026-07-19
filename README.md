@@ -202,12 +202,12 @@ BioShield AI is built with strict responsible AI principles:
 
 ## Streamlit Community Cloud deployment
 
-Streamlit Community Cloud is the preferred free demo host because this repository is a
-native Streamlit app and Community Cloud recognizes the conda `environment.yml`, including
-the pinned Bioconda AMRFinderPlus runtime. Deploy `app/streamlit_app.py`, use Python 3.11,
-and add `SUPABASE_URL` and `SUPABASE_KEY` as app secrets. Do not run `amrfinder -u` in
-the deployed app: inference intentionally refuses a database version different from the
-one frozen in `data/processed/feature_spec.json`.
+The repository is prepared for Streamlit Community Cloud with a pinned Conda environment,
+Bioconda AMRFinderPlus runtime, final model artifacts, per-visitor Supabase auth clients,
+and an authenticated-by-default deployment posture. Follow the exact field values and
+two-secret setup in [`docs/DEPLOY_STREAMLIT.md`](docs/DEPLOY_STREAMLIT.md). Do not run
+`amrfinder -u` in the deployed app: inference intentionally refuses a database version
+different from the one frozen in `data/processed/feature_spec.json`.
 
 The upload path is synchronous and single-genome. FASTA bytes are held only until
 AMRFinderPlus and model inference finish; the temporary FASTA and TSV are then deleted on

@@ -1,8 +1,8 @@
 # Python runtime dependencies. AMRFinderPlus is native software and is installed
 # through environment.yml on Streamlit Community Cloud.
 .
-streamlit>=1.33
-supabase>=2.4
+streamlit==1.59.1
+supabase==2.31.0
 python-dotenv
 pypdf
 # Optional: enables the flag-gated plain-language clinician summary. Inactive

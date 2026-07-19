@@ -1,7 +1,7 @@
 """
 Authentication for BioShield AI.
 
-Email/password + Google OAuth via Supabase, plus a zero-setup guest/demo mode.
+Email/password via Supabase, plus an optional zero-setup guest/demo mode.
 Supabase is imported lazily so the app boots and the demo runs even when the
 `supabase` package or credentials are absent — the guest path never touches it.
 
@@ -11,7 +11,7 @@ Supabase calls without changing the sign-in UI.
 
 from __future__ import annotations
 
-import os
+from urllib.parse import urlsplit, urlunsplit
 
 import streamlit as st
 
@@ -42,7 +42,17 @@ def supabase_available() -> bool:
         import supabase  # noqa: F401
     except Exception:
         return False
-    return bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"))
+    from app.supabase_client import supabase_configured
+
+    return supabase_configured()
+
+
+def demo_mode_available() -> bool:
+    """Allow local demos by default, but require auth when Supabase is configured."""
+
+    from app.supabase_client import setting_enabled
+
+    return setting_enabled("ENABLE_DEMO_MODE", default=not supabase_available())
 
 
 # ─── session helpers ─────────────────────────────────────────────────────────
@@ -60,6 +70,8 @@ def is_guest() -> bool:
 
 
 def enter_guest_mode() -> None:
+    if not demo_mode_available():
+        raise RuntimeError("Demo mode is disabled for this deployment.")
     st.session_state["user"] = {
         "id": "guest",
         "email": "demo.clinician@bioshield.ai",
@@ -81,22 +93,31 @@ def _clear_session() -> None:
                 "guest_patients", "guest_records", "route", "route_params",
                 "_pdf_done", "_pdf_msg", "_clear_new_patient", "wizard"):
         st.session_state.pop(key, None)
+    from app.supabase_client import clear_supabase_client
+
+    clear_supabase_client()
 
 
-# ─── email/password + OAuth (lazy) ───────────────────────────────────────────
+# ─── email/password authentication (lazy) ────────────────────────────────────
 def sign_up(email: str, password: str, full_name: str) -> tuple[bool, str]:
     try:
         response = _supabase().auth.sign_up({
             "email": email, "password": password,
-            "options": {"data": {"full_name": full_name}},
+            "options": {
+                "data": {"full_name": full_name},
+                "email_redirect_to": _get_redirect_url(),
+            },
         })
         if response.user:
+            if response.session:
+                _set_session(response.user.model_dump(), response.session.model_dump())
+                return True, "Account created and signed in."
             return True, "Account created. Check your email to confirm your address."
         return False, "Sign-up failed. Please try again."
     except _auth_error_cls() as e:
         return False, str(e)
     except Exception as e:  # noqa: BLE001
-        return False, f"{e}  (Tip: use 'Continue to demo workspace' to explore without setup.)"
+        return False, str(e)
 
 
 def sign_in(email: str, password: str) -> tuple[bool, str]:
@@ -110,7 +131,7 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
     except _auth_error_cls() as e:
         return False, str(e)
     except Exception as e:  # noqa: BLE001
-        return False, f"{e}  (Tip: use 'Continue to demo workspace' to explore without setup.)"
+        return False, str(e)
 
 
 def sign_out() -> None:
@@ -122,42 +143,21 @@ def sign_out() -> None:
     _clear_session()
 
 
-def reset_password(email: str) -> tuple[bool, str]:
-    try:
-        _supabase().auth.reset_password_email(email)
-        return True, "Password reset email sent. Check your inbox."
-    except _auth_error_cls() as e:
-        return False, str(e)
-    except Exception as e:  # noqa: BLE001
-        return False, f"{e}  (Tip: use 'Continue to demo workspace' to explore without setup.)"
-
-
-def get_google_login_url() -> str | None:
-    try:
-        response = _supabase().auth.sign_in_with_oauth({
-            "provider": "google",
-            "options": {"redirect_to": _get_redirect_url()},
-        })
-        return response.url
-    except Exception:
-        return None
-
-
-def handle_oauth_code(code: str) -> tuple[bool, str]:
-    try:
-        response = _supabase().auth.exchange_code_for_session({"auth_code": code})
-        if response.user and response.session:
-            _set_session(response.user.model_dump(), response.session.model_dump())
-            return True, "Signed in with Google."
-        return False, "OAuth exchange failed."
-    except _auth_error_cls() as e:
-        return False, str(e)
-    except Exception as e:  # noqa: BLE001
-        return False, str(e)
-
-
 def _get_redirect_url() -> str:
-    return os.environ.get("OAUTH_REDIRECT_URL", "http://localhost:8501")
+    from app.supabase_client import get_setting
+
+    explicit = get_setting("AUTH_REDIRECT_URL") or get_setting("OAUTH_REDIRECT_URL")
+    if explicit:
+        return explicit
+    try:
+        context_url = st.context.url
+        current_url = str(context_url).strip() if context_url else ""
+    except (AttributeError, RuntimeError):
+        current_url = ""
+    if current_url:
+        parts = urlsplit(current_url)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", "", ""))
+    return "http://localhost:8501"
 
 
 # ─── premium sign-in experience ──────────────────────────────────────────────
@@ -234,10 +234,10 @@ def render_login_page() -> None:
         '<em>Staphylococcus&nbsp;aureus</em>.</div>'
         '<div class="gf-auth-lead">Submit a reconstructed, quality-checked genome and review a '
         'per-antibiotic report with calibrated confidence, honest evidence categories, and a full '
-        'analysis history tied to each patient and case.</div>'
+        'analysis workspace for the current signed-in session.</div>'
         '<div class="gf-auth-feats">'
         + _feature("gauge", "Calibrated & honest",
-                   "Confidence is calibrated on held-out data; weak evidence returns an explicit no-call.")
+                   "Confidence uses grouped out-of-fold calibration; weak evidence returns an explicit no-call.")
         + _feature("flask", "Evidence you can trace",
                    "Separates catalog-confirmed markers from statistical associations — never conflated.")
         + _feature("lock", "Built for clinical trust",
@@ -263,7 +263,11 @@ def render_login_page() -> None:
                     '<div class="lead">Access your clinical research workspace.</div>',
                     unsafe_allow_html=True)
 
-        tab_login, tab_register, tab_reset = st.tabs(["Sign in", "Create account", "Reset"])
+        auth_ready = supabase_available()
+        if not auth_ready:
+            st.info("Supabase authentication is not configured. Local demo mode is available below.")
+
+        tab_login, tab_register = st.tabs(["Sign in", "Create account"])
 
         with tab_login:
             with st.form("login_form"):
@@ -280,11 +284,6 @@ def render_login_page() -> None:
                         if ok:
                             st.rerun()
 
-            gurl = get_google_login_url() if supabase_available() else None
-            if gurl:
-                st.link_button("Continue with Google", gurl, use_container_width=True,
-                               icon=":material/login:")
-
         with tab_register:
             with st.form("register_form"):
                 reg_name = st.text_input("Full name")
@@ -298,33 +297,26 @@ def render_login_page() -> None:
                         st.error("Please complete all fields.")
                     elif reg_pw != reg_pw2:
                         st.error("Passwords do not match.")
-                    elif len(reg_pw) < 6:
-                        st.error("Password must be at least 6 characters.")
+                    elif len(reg_pw) < 8:
+                        st.error("Password must be at least 8 characters.")
                     else:
                         ok, msg = sign_up(reg_email, reg_pw, reg_name)
                         (st.success if ok else st.error)(msg)
+                        if ok and is_authenticated():
+                            st.rerun()
 
-        with tab_reset:
-            with st.form("reset_form"):
-                reset_email = st.text_input("Work email")
-                if st.form_submit_button("Send reset link", use_container_width=True):
-                    if not reset_email:
-                        st.error("Please enter your email.")
-                    else:
-                        ok, msg = reset_password(reset_email)
-                        (st.success if ok else st.error)(msg)
-
-        st.markdown('<div class="gf-orline">or</div>', unsafe_allow_html=True)
-        if st.button("Continue to demo workspace", use_container_width=True,
-                     icon=":material/science:"):
-            enter_guest_mode()
-            st.rerun()
+        if demo_mode_available():
+            st.markdown('<div class="gf-orline">or</div>', unsafe_allow_html=True)
+            if st.button("Continue to demo workspace", use_container_width=True,
+                         icon=":material/science:"):
+                enter_guest_mode()
+                st.rerun()
 
         st.markdown(
             '<div class="gf-secnote"><span class="si">'
             + icon("lock", 15) +
-            '</span> Single-tenant access with row-level isolation. Use synthetic '
-            'demonstration data only — do not enter real protected health information.</div>',
+            '</span> Authentication is isolated per browser session. Analyses are not persisted. '
+            'Use synthetic demonstration data only — do not enter real protected health information.</div>',
             unsafe_allow_html=True,
         )
         st.markdown("</div>", unsafe_allow_html=True)

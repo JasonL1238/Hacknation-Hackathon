@@ -17,11 +17,12 @@ dependencies:
   - pyyaml
   - requests
   - biopython
-  - streamlit
+  - streamlit=1.59.1
   - mash             # genome sketching for de-dup + grouped split (bioconda)
   # Runtime inference must use the same software/database recorded in feature_spec.json.
   - ncbi-amrfinderplus=4.2.7
   - pip:
-      - supabase>=2.4    # auth + PostgreSQL + storage backend (app/)
+      - supabase==2.31.0 # email/password authentication only in the deployed app
       - python-dotenv    # load SUPABASE_* from .env
       - pypdf            # extract patient name / MRN from an uploaded PDF (app/)
+      - openai>=1.0      # optional summary; inactive unless OPENAI_API_KEY is set

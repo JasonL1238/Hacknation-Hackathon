@@ -1,46 +1,113 @@
-"""
-Supabase client initialization for BioShield AI.
+"""Supabase configuration and per-visitor client initialization.
 
-Reads SUPABASE_URL and SUPABASE_KEY from environment variables or .env file.
+Supabase clients contain mutable authentication state. A process-wide cached
+client is unsafe in a public Streamlit app because many visitors share the same
+Python process. This module stores one client in each visitor's session instead.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
-from functools import lru_cache
 
-from supabase import create_client, Client
+import streamlit as st
+from supabase import Client, create_client
+from supabase.lib.client_options import SyncClientOptions
+
+_CLIENT_KEY = "_supabase_client"
+_CONFIG_KEY = "_supabase_client_config"
 
 
 def _load_env() -> None:
-    """Load .env file if python-dotenv is available."""
+    """Load a local .env file when python-dotenv is available."""
+
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass
 
 
-@lru_cache(maxsize=1)
-def get_supabase() -> Client:
-    """Return a singleton Supabase client.
+def get_setting(name: str, default: str = "") -> str:
+    """Read a setting from the environment or top-level Streamlit secrets."""
 
-    Uses the PKCE OAuth flow so social logins (Google) redirect back with a
-    `?code=` query parameter that a server-side Streamlit app can read — the
-    default implicit flow returns tokens in the URL fragment, which the server
-    never sees. The client is a process-lived singleton, so the PKCE code
-    verifier persists across the OAuth redirect.
-    """
     _load_env()
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    value = os.getenv(name)
+    if value is not None:
+        return str(value).strip()
+
+    try:
+        value = st.secrets.get(name, default)
+    except (FileNotFoundError, KeyError):
+        value = default
+    return str(value).strip()
+
+
+def setting_enabled(name: str, *, default: bool = False) -> bool:
+    value = get_setting(name)
+    if not value:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def supabase_configured() -> bool:
+    return bool(get_setting("SUPABASE_URL") and get_setting("SUPABASE_KEY"))
+
+
+def _jwt_role(key: str) -> str | None:
+    """Read an unverified role claim only to catch accidental privileged-key use."""
+
+    try:
+        payload = key.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        return str(json.loads(decoded).get("role", "")) or None
+    except (IndexError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _validate_public_key(key: str) -> None:
+    if key.startswith("sb_secret_") or _jwt_role(key) == "service_role":
+        raise RuntimeError(
+            "SUPABASE_KEY must be the publishable/anon key, not a secret or "
+            "service-role key. Never expose a privileged Supabase key in a web app."
+        )
+
+
+def get_supabase() -> Client:
+    """Return a Supabase client isolated to the current Streamlit visitor."""
+
+    url = get_setting("SUPABASE_URL")
+    key = get_setting("SUPABASE_KEY")
     if not url or not key:
         raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_KEY must be set. "
-            "Copy .env.example to .env and fill in your Supabase project credentials."
+            "SUPABASE_URL and SUPABASE_KEY must be set. Add them to Streamlit "
+            "Secrets or copy .env.example to .env for local use."
         )
-    # supabase-py defaults flow_type to "pkce", which is what we need so Google
-    # OAuth returns a readable ?code= param. We intentionally pass no ClientOptions:
-    # the base ClientOptions lacks the `storage` field the sync client requires,
-    # so the library must build its own SyncClientOptions internally.
-    return create_client(url, key)
+    _validate_public_key(key)
+
+    signature = (url, hashlib.sha256(key.encode("utf-8")).hexdigest())
+    if st.session_state.get(_CONFIG_KEY) == signature:
+        client = st.session_state.get(_CLIENT_KEY)
+        if client is not None:
+            return client
+
+    # Streamlit session state is tied to a WebSocket and can reset after a full
+    # email-link redirect. The implicit flow lets Supabase confirm the account
+    # before redirecting; the visitor then signs in normally. Social OAuth and
+    # self-service recovery are intentionally not offered by this auth-only app.
+    options = SyncClientOptions(flow_type="implicit", persist_session=True)
+    client = create_client(url, key, options=options)
+    st.session_state[_CLIENT_KEY] = client
+    st.session_state[_CONFIG_KEY] = signature
+    return client
+
+
+def clear_supabase_client() -> None:
+    """Discard auth state held by the current visitor's client."""
+
+    st.session_state.pop(_CLIENT_KEY, None)
+    st.session_state.pop(_CONFIG_KEY, None)

@@ -16,6 +16,7 @@ it never designs, modifies, or optimizes any organism.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -57,23 +58,18 @@ st.set_page_config(
 
 from app.ui.theme import inject as inject_theme  # noqa: E402
 from app.auth import (  # noqa: E402
-    is_authenticated, handle_oauth_code, render_login_page, get_current_user,
+    demo_mode_available,
+    is_authenticated,
+    render_login_page,
+    get_current_user,
 )
 
 inject_theme()
 
-# ─── OAuth redirect handling (?code=…) ───────────────────────────────────────
 _params = st.query_params
-if "code" in _params and not is_authenticated():
-    ok, msg = handle_oauth_code(_params["code"])
-    if ok:
-        st.query_params.clear()
-        st.rerun()
-    else:
-        st.error(f"Sign-in failed: {msg}")
 
 # ─── demo deep-link (?demo=1 enters the synthetic demo workspace) ────────────
-if "demo" in _params and not is_authenticated():
+if "demo" in _params and demo_mode_available() and not is_authenticated():
     from app.auth import enter_guest_mode
     enter_guest_mode()
     _goto = _params.get("goto")

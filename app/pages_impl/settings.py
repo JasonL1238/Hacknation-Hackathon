@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
-
 import streamlit as st
 
 from app.icons import icon
+from app.services.analysis_service import get_provider
 from app.ui import components as C
 
 
@@ -32,7 +31,7 @@ def render(store, user) -> None:
             f'</div>', unsafe_allow_html=True)
         st.write("")
         st.markdown(
-            C.badge("Row-level isolation", "work", "lock", small=True) + " "
+            C.badge("Session-isolated", "work", "lock", small=True) + " "
             + C.badge("Session active", "info", "activity", small=True),
             unsafe_allow_html=True)
         st.write("")
@@ -44,17 +43,21 @@ def render(store, user) -> None:
         st.write("")
 
         C.panel_open("Model integration", eyebrow="Configuration", icon_name="cpu")
-        api_base = os.environ.get("GENOME_FIREWALL_API_BASE", "")
+        provider = get_provider()
+        provider_label = {
+            "local": "Local calibrated XGBoost",
+            "api": "Remote model API",
+            "mock": "Synthetic demo provider",
+        }.get(provider.name, provider.name)
         st.markdown(
             f'<div class="gf-meta"><div><div class="k">Analysis provider</div>'
-            f'<div class="v">{"Real API" if api_base else "Mock (demo)"}</div></div>'
-            f'<div><div class="k">API base</div><div class="v mono">{C.esc(api_base or "not set")}</div></div>'
+            f'<div class="v">{C.esc(provider_label)}</div></div>'
+            f'<div><div class="k">Inference mode</div><div class="v">Synchronous, one genome</div></div>'
             f'</div>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="gf-sub" style="margin-top:8px">Set <span class="gf-mono">'
-            'GENOME_FIREWALL_API_BASE</span> to route analyses to a real asynchronous '
-            'backend — no UI changes required. The frontend already speaks the analysis '
-            'service contract.</div>', unsafe_allow_html=True)
+            '<div class="gf-sub" style="margin-top:8px">The deployed app runs the checked-in '
+            'per-antibiotic XGBoost artifacts after AMRFinderPlus feature extraction. No model '
+            'API key or separate inference server is required.</div>', unsafe_allow_html=True)
         C.panel_close()
 
     with right:
@@ -62,8 +65,10 @@ def render(store, user) -> None:
         for text in [
             "This is a demonstration environment. Enter synthetic data only — never real "
             "protected health information.",
-            "In a persistent deployment, patient data is single-tenant with row-level "
-            "isolation and genome files live in a private, per-user bucket.",
+            "Patients, cases, results, and activity events exist only in this browser session; "
+            "they are not written to Supabase or another database.",
+            "Uploaded genome bytes and temporary AMRFinderPlus output are deleted immediately "
+            "after inference succeeds or fails.",
             "No regulatory clearance or HIPAA compliance is claimed for this prototype.",
         ]:
             st.markdown(f'<div style="display:flex;gap:9px;padding:5px 0">'
@@ -76,10 +81,11 @@ def render(store, user) -> None:
         st.markdown(
             f'<div class="gf-meta"><div><div class="k">Activity events</div>'
             f'<div class="v gf-tnum">{len(store.activity)}</div></div>'
-            f'<div><div class="k">Access model</div><div class="v">Owner-scoped</div></div>'
+            f'<div><div class="k">Access model</div><div class="v">Current session only</div></div>'
             f'</div>', unsafe_allow_html=True)
         st.markdown('<div class="gf-sub" style="margin-top:8px">Every case, isolate, upload, '
-                    'and analysis is recorded in an activity log tied to the patient and case.</div>',
+                    'and analysis is recorded in a temporary activity log tied to the patient and '
+                    'case. It disappears when this Streamlit session ends.</div>',
                     unsafe_allow_html=True)
         C.panel_close()
         st.write("")
