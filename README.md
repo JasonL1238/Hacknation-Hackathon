@@ -70,7 +70,7 @@ BioShield AI's deployed model is **XGBoost** — one calibrated classifier train
 - Feature configuration is selected via grouped out-of-fold Brier score computed strictly within the training set, never against the held-out test set.
 - Final deployment models are refit on every labeled genome, with sigmoid calibration learned from grouped out-of-fold predictions.
 
-**Current best result:** ~94% accuracy on held-out grouped test data for [antibiotic name — confirm before publishing]. Per-antibiotic performance varies; consult the current XGBoost evaluation report for the full breakdown rather than relying on any single headline figure.
+**Current best result:** ~85% accuracy on held-out grouped test. Per-antibiotic performance varies; consult the current XGBoost evaluation report for the full breakdown rather than relying on any single headline figure.
 
 > An external, held-out dataset is recommended for an unbiased final evaluation of production performance.
 
