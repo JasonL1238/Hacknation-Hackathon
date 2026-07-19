@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+data/raw/
+data/interim/
+reports/
+notebooks/
