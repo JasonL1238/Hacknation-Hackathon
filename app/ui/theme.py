@@ -107,7 +107,23 @@ def _global_css() -> str:
 /* ── Reset Streamlit chrome ─────────────────────────────────────────── */
 [data-testid="stToolbar"], [data-testid="stDecoration"],
 #MainMenu, footer, [data-testid="stStatusWidget"] { display:none !important; }
-[data-testid="stHeader"] { background:transparent; height:0; }
+/* Header is flattened for a full-bleed look, but must NOT clip the "expand
+   sidebar" control that lives inside it — otherwise a collapsed sidebar can
+   never be reopened. Keep overflow visible and give the control a real,
+   fixed-position, clickable target. */
+[data-testid="stHeader"] { background:transparent; height:0; overflow:visible; }
+[data-testid="stExpandSidebarButton"] {
+  position:fixed !important; top:10px !important; left:10px !important;
+  width:auto !important; height:auto !important; overflow:visible !important;
+  z-index:1000000 !important; opacity:1 !important; visibility:visible !important;
+}
+[data-testid="stExpandSidebarButton"] button,
+[data-testid="stExpandSidebarButton"] > * {
+  width:2.3rem !important; height:2.3rem !important; min-width:2.3rem !important;
+  display:flex !important; align-items:center !important; justify-content:center !important;
+  background:var(--gf-nav) !important; color:#fff !important; border-radius:9px !important;
+  box-shadow:0 2px 8px rgba(15,30,58,.28) !important;
+}
 
 html { font-size:16px; }
 html, body, [class*="css"], .stApp, [data-testid="stAppViewContainer"] {
