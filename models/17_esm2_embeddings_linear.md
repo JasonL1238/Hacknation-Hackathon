@@ -2,7 +2,7 @@
 
 > **One-liner:** Embed each genome's AMRFinderPlus-flagged protein sequences with a frozen ESM-2 protein language model, mean-pool to one vector per genome, and train a simple logistic-regression or gradient-boosting head on the same grouped splits.
 > **Category:** sequence-DL ·
-> **Runs on:** Kaggle GPU (embed) → local CPU (head) ·
+> **Runs on:** Colab GPU (embed) → Colab/local CPU (head) ·
 > **Priority:** recommended ·
 > **Interpretable:** no (head partially)
 
@@ -13,11 +13,18 @@ The presence/absence baseline can only see genes AMRFinderPlus already has in it
 Prefer this over the pure presence/absence baseline specifically when you want to catch resistance from *mutated gene variants* that the catalog misses — that is the one thing a sequence model can do that the baseline structurally cannot. Skip it (or keep it as an analysis, not the production model) if it does not beat the logistic-regression baseline on held-out grouped-test Brier and balanced accuracy: **not beating the interpretable baseline is a valid, honest, reportable result**, and you should report it as such rather than tuning until the numbers look good. Choose this frozen-embeddings route over full fine-tuning (file 18) first — it is far cheaper, far less prone to overfitting on a few hundred genomes, and lets you sweep the head locally in seconds.
 
 ## Data interface (the contract this code must respect)
-- On Kaggle GPU: extract the AMRFinderPlus-flagged protein sequences per genome, embed each protein with ESM-2, and **mean-pool** across proteins (and residues) to one fixed-length vector per `genome_id`. Save the per-genome embedding matrix (index = `genome_id`) to disk and download it.
+- Protein inputs are the prepared per-genome FASTAs under `data/interim/esm2_proteins/<genome_id>.faa`; the same directory also contains `all_amr_proteins.faa` and `manifest.csv`. Create or refresh them locally with `python scripts/prepare_esm2_fastas.py`.
+- On the GPU runtime: read those prepared AMRFinderPlus AMR-hit protein sequences, embed each protein with ESM-2, and **mean-pool** across proteins (and residues) to one fixed-length vector per `genome_id`. Save the per-genome embedding matrix (index = `genome_id`) to disk and download it.
 - Locally: read the cached embeddings as X, aligned to `genome_id`. Optionally read `data/processed/features.parquet` to **concatenate** the binary presence/absence columns with the embedding, and test concatenate-vs-replace.
 - Read `data/processed/labels.csv`, filter to one antibiotic at a time, map `label` R→1, S→0.
 - Read `data/processed/splits.json` for the grouped train/cal/test assignment and `cluster_id`; never re-split randomly. Fit the head on **train** only, calibrate on **cal** only, report metrics on **test** only.
 - Read `db/drugs_saureus.csv` so the downstream target gate can still veto a "likely-to-work" call when the drug's molecular target is absent.
+
+### Concrete local and Colab paths
+- This machine's repository root is `/Users/jasonli/Documents/GitHub/Hacknation-Hackathon`.
+- A Colab runtime cannot read that Mac path. Clone the tracked repository to `/content/Hacknation-Hackathon`, mount Google Drive, and copy the locally generated `data/interim/esm2_proteins/` directory to `/content/drive/MyDrive/Hacknation-Hackathon-sequence-data/data/interim/esm2_proteins/`.
+- Generated notebook code must define `REPO_ROOT` and `SEQUENCE_ROOT` separately, allow both to be overridden by environment variables, validate every required path before training, and join records by the `genome_id` prefix before the first `|` in each protein FASTA record ID.
+- **Relative-path option:** when running locally from the repository root, `data/interim/esm2_proteins/`, `data/processed/`, and `db/` are valid relative paths. In Colab, relative paths work only after the protein directory has actually been copied into `/content/Hacknation-Hackathon/data/interim/esm2_proteins/`; cloning alone does not provide it because `data/interim/*` is ignored by Git. The notebook must `%cd /content/Hacknation-Hackathon` (or use `os.chdir`) and verify the files before using relative paths.
 
 ## Adversarial checks it must survive
 - **No leakage (Rule 1):** The GPU embedding step is per-genome and label-free, so it cannot leak labels — but the *head* must still be fit on train only, calibrated on cal only, and any head hyperparameter search must use GroupKFold on `cluster_id` inside train. Confirm no `cluster_id` spans splits before fitting.
@@ -47,16 +54,18 @@ Paste the block below into ChatGPT/Claude to get complete, runnable training + t
 ```text
 I am building "Genome Firewall", a strictly DEFENSIVE research prototype that predicts, per antibiotic, whether a reconstructed Staphylococcus aureus genome is likely-to-fail (Resistant) or likely-to-work (Susceptible) treatment, with a CALIBRATED confidence. It only predicts resistance that already exists; it never designs or modifies organisms. The judged priority is ML RIGOR AND CALIBRATION (Brier score + reliability diagram on a held-out grouped-test split) over raw accuracy.
 
-I want to use ESM-2 PROTEIN EMBEDDINGS with a simple LINEAR or GRADIENT-BOOSTING head. This runs in TWO stages: (1) a GPU stage on KAGGLE that computes frozen ESM-2 embeddings, and (2) a local CPU stage that trains and calibrates the head. Write complete, runnable Python for BOTH stages.
+I want to use ESM-2 PROTEIN EMBEDDINGS with a simple LINEAR or GRADIENT-BOOSTING head. This runs in TWO stages in GOOGLE COLAB: (1) a GPU stage that computes frozen ESM-2 embeddings, and (2) a CPU stage in the same notebook that trains and calibrates the head. Write complete, runnable Colab notebook cells for BOTH stages, including Google Drive mounting and path validation.
 
 DATA CONTRACT (files already exist on disk):
+- PATHS: on this Mac, `REPO_ROOT=/Users/jasonli/Documents/GitHub/Hacknation-Hackathon` and `SEQUENCE_ROOT=REPO_ROOT`. In Colab, use `REPO_ROOT=/content/Hacknation-Hackathon` for the Git clone and `SEQUENCE_ROOT=/content/drive/MyDrive/Hacknation-Hackathon-sequence-data` for the large untracked data copied from this Mac. At the top of the notebook, mount Google Drive when running in Colab, define both roots as `pathlib.Path` values (environment-variable overrides `GENOME_FIREWALL_ROOT` and `GENOME_FIREWALL_SEQUENCE_ROOT`), and fail with a clear missing-path error rather than silently using fabricated data.
+- RELATIVE PATHS: if all required folders have been copied beneath the repository, first change the working directory to REPO_ROOT and use `data/interim/esm2_proteins`, `data/processed`, and `db` as relative paths. In Colab, cloning does not include `data/interim/esm2_proteins`; confirm that directory exists and contains `.faa` files before training. Do not assume a relative path exists merely because the repository was cloned.
 - data/processed/features.parquet: one row per genome, index = genome_id (str). Columns are binary int8 presence/absence of AMR gene symbols (e.g. mecA, blaZ, ermC, tetK, aac(6')-aph(2'')) and named point mutations (e.g. gyrA_S84L, grlA_S80F). Column set is the union across the dataset; absent = 0; no missing values. Tens-to-low-hundreds of sparse binary columns, hundreds-to-low-thousands of genomes.
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant/likely-to-fail, S = susceptible/likely-to-work), source, method. One row per (genome_id, antibiotic). About 4-6 antibiotics (e.g. erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
 - data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name. Used for a deterministic target gate.
-- Additionally assume you have, per genome_id, a set of PROTEIN amino-acid sequences that AMRFinderPlus flagged (I will provide them as a dict genome_id -> list[str] of protein sequences, or a FASTA per genome). If a genome has no flagged proteins, produce a zero vector for it.
+- SEQUENCE_ROOT/data/interim/esm2_proteins/<genome_id>.faa: one prepared FASTA per genome containing translated AMRFinderPlus rows with Type == AMR. Record IDs begin `<genome_id>|`. The directory also contains `all_amr_proteins.faa` and `manifest.csv` with columns genome_id, protein_count, fasta_file. These are generated locally by `python scripts/prepare_esm2_fastas.py`. If a genome has no flagged AMR proteins, produce a zero vector for it. Do not feed the nucleotide `.fna` files directly to ESM-2.
 
-STAGE 1 (KAGGLE GPU) - compute embeddings:
+STAGE 1 (COLAB GPU) - compute embeddings:
 - Use the Hugging Face transformers ESM-2 checkpoints. Make the checkpoint a parameter and support facebook/esm2_t12_35M_UR50D, facebook/esm2_t30_150M_UR50D, and facebook/esm2_t33_650M_UR50D.
 - For each genome, embed each flagged protein and MEAN-POOL across residues (mask padding) to get a per-protein vector, then MEAN-POOL across the genome's proteins to get ONE fixed-length vector per genome_id. Also implement max-pooling and attention-pooling as switchable options.
 - Batch on GPU (cuda), use no_grad (frozen backbone, no fine-tuning), and handle long sequences by truncating to the model max length. This is the only GPU-heavy step.

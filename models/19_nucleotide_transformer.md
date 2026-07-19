@@ -2,7 +2,7 @@
 
 > **One-liner:** Embed gene and contig DNA regions with a genomic language model (InstaDeep Nucleotide Transformer or DNABERT-2), pool to one vector per genome, and train a simple head on the same grouped splits.
 > **Category:** sequence-DL (DNA) ·
-> **Runs on:** Kaggle GPU (embed) → local CPU (head) ·
+> **Runs on:** Colab GPU (embed) → Colab/local CPU (head) ·
 > **Priority:** stretch / optional ·
 > **Interpretable:** no
 
@@ -13,11 +13,17 @@ A DNA-level language model sees nucleotide context that a protein model cannot: 
 Treat this as optional and lowest-priority among the sequence models. Only run it after the protein-embedding route (file 17) is in place, and only to answer the specific question "does nucleotide context add signal beyond the flagged proteins?" Skip it as a production candidate unless it beats the logistic-regression baseline on held-out grouped-test Brier and balanced accuracy — and, as with the other sequence models, **report "no gain over the protein embeddings / no gain over the baseline" as a valid, honest, useful result**, since a negative result here justifies not spending GPU budget on DNA models. It is heavier per genome than protein embeddings (long DNA context) and no more interpretable, so the bar for keeping it is high.
 
 ## Data interface (the contract this code must respect)
-- On Kaggle GPU: extract the relevant gene/contig DNA regions per genome (at minimum the regions around AMRFinderPlus hits; optionally wider contigs), tokenize with the genomic LM's tokenizer (k-mer or BPE), embed, and pool to ONE vector per `genome_id`. Save the per-genome embedding matrix (index = `genome_id`) to disk and download it.
+- DNA inputs are `data/raw/<genome_id>.fna`; AMR-hit coordinates are in `data/interim/amrfinder/<genome_id>.tsv`. On the GPU runtime, extract relevant regions from rows with `Type == AMR` (optionally wider contigs), tokenize with the genomic LM's tokenizer (k-mer or BPE), embed, and pool to ONE vector per `genome_id`. Save the per-genome embedding matrix (index = `genome_id`) to disk and download it.
 - Locally: read the cached embeddings as X. Optionally concatenate with `data/processed/features.parquet` presence/absence columns and/or the protein embeddings from file 17; test compositions.
 - Read `data/processed/labels.csv`, filter to one antibiotic at a time, map `label` R→1, S→0.
 - Read `data/processed/splits.json` for grouped train/cal/test and `cluster_id`; never re-split randomly. Fit the head on **train** only, calibrate on **cal** only, report metrics on **test** only.
 - Read `db/drugs_saureus.csv` so the downstream target gate can still veto a "likely-to-work" call when the drug's molecular target is absent.
+
+### Concrete local and Colab paths
+- This machine's repository root is `/Users/jasonli/Documents/GitHub/Hacknation-Hackathon`; it currently contains 2,542 `.fna` files under `data/raw/` and matching AMRFinder TSVs under `data/interim/amrfinder/`.
+- A Colab runtime cannot read that Mac path. Clone tracked files to `/content/Hacknation-Hackathon`, then copy `data/raw/` and `data/interim/amrfinder/` to `/content/drive/MyDrive/Hacknation-Hackathon-sequence-data/` with the same directory structure.
+- Generated notebook code must define separate `REPO_ROOT` and `SEQUENCE_ROOT` variables, allow environment-variable overrides, validate matching `<genome_id>.fna`/`.tsv` pairs and overlap with labels/splits, and stop clearly if files are missing.
+- **Relative-path option:** when running locally from the repository root, use `data/raw/`, `data/interim/amrfinder/`, `data/processed/`, and `db/` directly. In Colab, those relative sequence paths work only after the `.fna` and `.tsv` files have actually been copied beneath `/content/Hacknation-Hackathon/data/`; cloning alone does not include them. The notebook must change to the repository root and validate file counts before embedding.
 
 ## Adversarial checks it must survive
 - **Context-length / coverage honesty:** Genomic LMs have hard context limits (a few kb to ~tens of kb depending on the model and tokenizer). You physically cannot embed a whole *S. aureus* genome in one pass — you must window/tile and pool, and how you choose windows biases what the model sees. State the tiling scheme and confirm the flagged-resistance regions are actually inside the embedded windows, or the model is blind to the very signal it is meant to add.
@@ -33,7 +39,7 @@ Treat this as optional and lowest-priority among the sequence models. Only run i
 - **Window/tiling scheme:** flagged-region-only vs wider contig windows; window size and stride; how windows are pooled to a genome vector (mean / max / attention).
 - **Feature composition:** DNA-embeddings-only vs `concat(DNA, protein embeddings)` vs `concat(DNA, presence/absence)` — test whether DNA adds anything on top.
 - **Head:** logistic regression (`C` over `np.logspace(-3, 2, 12)`, `class_weight="balanced"`) or gradient boosting (`scale_pos_weight` for imbalance); optional PCA before the head.
-- **GPU-memory knobs:** batch size, sequence length / truncation, mixed precision — DNA context is memory-hungry, so document the memory ceiling on Kaggle.
+- **GPU-memory knobs:** batch size, sequence length / truncation, mixed precision — DNA context is memory-hungry, so document the memory ceiling on Colab.
 - Cache embeddings to disk so head sweeps never re-run the GPU step.
 
 ## Calibration & no-call handling
@@ -48,16 +54,18 @@ Paste the block below into ChatGPT/Claude to get complete, runnable training + t
 ```text
 I am building "Genome Firewall", a strictly DEFENSIVE research prototype that predicts, per antibiotic, whether a reconstructed Staphylococcus aureus genome is likely-to-fail (Resistant) or likely-to-work (Susceptible) treatment, with a CALIBRATED confidence. It only predicts resistance that already exists; it never designs or modifies organisms. The judged priority is ML RIGOR AND CALIBRATION (Brier score + reliability diagram on a held-out grouped-test split) over raw accuracy.
 
-I want to use a NUCLEOTIDE / GENOMIC LANGUAGE MODEL (InstaDeep Nucleotide Transformer or DNABERT-2) to embed DNA regions, pool per genome, and train a simple head. This runs in TWO stages: (1) a GPU stage on KAGGLE that computes frozen DNA embeddings, and (2) a local CPU stage that trains and calibrates the head. Write complete, runnable Python (transformers, torch, scikit-learn, pandas, numpy, matplotlib).
+I want to use a NUCLEOTIDE / GENOMIC LANGUAGE MODEL (InstaDeep Nucleotide Transformer or DNABERT-2) to embed DNA regions, pool per genome, and train a simple head. This runs in TWO stages in GOOGLE COLAB: (1) a GPU stage that computes frozen DNA embeddings, and (2) a CPU stage in the same notebook that trains and calibrates the head. Write complete, runnable Colab notebook cells (transformers, torch, scikit-learn, pandas, numpy, matplotlib), including Google Drive mounting and path validation.
 
 DATA CONTRACT (files already exist on disk):
+- PATHS: on this Mac, `REPO_ROOT=/Users/jasonli/Documents/GitHub/Hacknation-Hackathon` and `SEQUENCE_ROOT=REPO_ROOT`. In Colab, use `REPO_ROOT=/content/Hacknation-Hackathon` for the Git clone and `SEQUENCE_ROOT=/content/drive/MyDrive/Hacknation-Hackathon-sequence-data` for the untracked FASTA/AMRFinder data copied from this Mac. Mount Google Drive in Colab. Define both roots as `pathlib.Path` values with environment-variable overrides `GENOME_FIREWALL_ROOT` and `GENOME_FIREWALL_SEQUENCE_ROOT`; resolve tracked tables relative to REPO_ROOT and sequence inputs relative to SEQUENCE_ROOT. Fail with a clear error if required files or genome-ID matches are missing.
+- RELATIVE PATHS: if all sequence folders have been copied beneath REPO_ROOT, change the working directory to REPO_ROOT and use `data/raw`, `data/interim/amrfinder`, `data/processed`, and `db` as relative paths. In Colab, verify that `data/raw` contains `.fna` files and `data/interim/amrfinder` contains matching `.tsv` files; a Git clone by itself is insufficient.
 - data/processed/features.parquet: one row per genome, index = genome_id (str). Columns are binary int8 presence/absence of AMR gene symbols (e.g. mecA, blaZ, ermC, tetK, aac(6')-aph(2'')) and named point mutations (e.g. gyrA_S84L, grlA_S80F). Column set is the union across the dataset; absent = 0; no missing values. Tens-to-low-hundreds of sparse binary columns, hundreds-to-low-thousands of genomes.
 - data/processed/labels.csv: columns genome_id, antibiotic, label in {R,S} (R = resistant/likely-to-fail, S = susceptible/likely-to-work), source, method. One row per (genome_id, antibiotic). About 4-6 antibiotics (e.g. erythromycin, clindamycin, ciprofloxacin, gentamicin, tetracycline, oxacillin/cefoxitin). Classes are imbalanced.
 - data/processed/splits.json: maps genome_id -> {"split": "train"|"cal"|"test", "cluster_id": int}. This is a GROUPED split: every genome in a cluster_id is in exactly ONE split; no cluster spans splits. Some clusters are unseen in training.
 - db/drugs_saureus.csv: columns antibiotic, drug_class, target_genes (;-sep), known_markers (;-sep), standardized_name. Used for a deterministic target gate.
-- Additionally assume you have, per genome_id, DNA sequences: at minimum the gene/contig regions around AMRFinderPlus hits (a dict genome_id -> list[str] of nucleotide sequences, or FASTA per genome), optionally wider contigs.
+- SEQUENCE_ROOT/data/raw/<genome_id>.fna: assembled nucleotide contigs, one FASTA per genome. SEQUENCE_ROOT/data/interim/amrfinder/<genome_id>.tsv: matching AMRFinderPlus output with `Contig id`, 1-based inclusive `Start`/`Stop`, `Strand`, and `Type`. Use rows with `Type == AMR` for targeted regions and match TSV `Contig id` to the FASTA record ID exactly; optionally tile wider contigs.
 
-STAGE 1 (KAGGLE GPU) - compute embeddings:
+STAGE 1 (COLAB GPU) - compute embeddings:
 - Use a Hugging Face genomic LM. Make the checkpoint a parameter and support InstaDeepAI Nucleotide Transformer variants and DNABERT-2 (different tokenizers: k-mer vs BPE, different context lengths).
 - Genomic LMs have HARD context limits and you cannot embed a whole genome at once: implement WINDOW/TILING (window size + stride as parameters), embed each window, and pool windows to ONE fixed-length vector per genome_id (mean/max/attention pooling switchable). Ensure the flagged-resistance regions actually fall inside the embedded windows and say so.
 - Batch on GPU (cuda), use no_grad (frozen backbone). Document the GPU memory ceiling and use mixed precision / truncation as needed. This is the GPU-heavy step.
