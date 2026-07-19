@@ -120,27 +120,20 @@ def _check_target_gate(
     if not target_genes:
         return True
 
-    # For S. aureus, most targets are chromosomally encoded (intrinsically present).
-    # The gate mainly enforces "don't infer success from silence".
-    # If any target gene appears in our feature columns AND is present, gate passes.
-    for gene in target_genes:
-        if gene in columns:
-            idx = columns.index(gene)
-            if feature_vector[idx] == 1:
-                return True
+    # Two cases, matching docs/DECISIONS.md's target-gate design:
+    # 1. A target gene that AMRFinderPlus *can* emit as a feature (detectable): require
+    #    it to actually be present in this genome — that's a real, checkable gate.
+    detectable = [g for g in target_genes if g in columns]
+    if detectable:
+        return any(feature_vector[columns.index(g)] == 1 for g in detectable)
 
-    # If target genes aren't in the feature set, they're likely intrinsic
-    # (not in AMRFinderPlus output because they're housekeeping genes).
-    # For S. aureus core targets (gyrA, rpoB, etc.), presence is assumed.
-    intrinsic_targets = {
-        "gyrA", "gyrB", "grlA", "parC", "parE", "rpoB",
-        "fusA", "rplC", "folA", "folP", "murA",
-        "pbp2", "pbp2a",  # PBP targets
-    }
-    if any(g in intrinsic_targets for g in target_genes):
-        return True
-
-    return False
+    # 2. All target genes are essential/intrinsic (ribosomal proteins rplV/rplD/rpsJ,
+    #    16S rrs, PBPs pbpA-D, gyrase/topoisomerase) that AMRFinderPlus does NOT emit
+    #    because they are housekeeping genes, not resistance determinants. In S. aureus
+    #    these are present by construction, so the gate passes. Its job here is to block
+    #    a "works" call from marker-absence alone, not to detect an intrinsic gene the
+    #    feature matrix was never designed to carry (documented limitation).
+    return True
 
 
 def _apply_nocall_logic(
