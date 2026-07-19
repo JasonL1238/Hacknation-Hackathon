@@ -1,0 +1,43 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install git-lfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-lfs
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # HF Spaces reject plain binary blobs outright (must be Git LFS), and
+      # this repo's own history predates LFS tracking for these paths. Rather
+      # than rewrite that history on every sync, push a single squashed
+      # snapshot commit built fresh each time so the Space repo never
+      # accumulates non-LFS binary blobs.
+      - name: Build orphan LFS snapshot
+        run: |
+          git checkout --orphan hf-space-snapshot
+          git lfs install --local
+          git lfs track "data/processed/final_models/*.pkl" "data/processed/features.parquet"
+          git add -A
+          git commit -m "Sync from GitHub main @ ${GITHUB_SHA}"
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push "https://JL8573:${HF_TOKEN}@huggingface.co/spaces/JL8573/bioshield-ai.git" hf-space-snapshot:main --force
