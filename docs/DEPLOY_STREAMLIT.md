@@ -32,6 +32,11 @@ only in each visitor's Streamlit session and are not persisted.
 
 ## 2. Deploy the Streamlit app
 
+The repository keeps the full training environment in the root `environment.yml`
+(including Mash for genome de-duplication). Because the entrypoint is under `app/`,
+Streamlit Community Cloud uses `app/environment.yml` first; that Cloud-specific
+environment omits training-only Mash and disables the implicit `defaults` channel.
+
 1. Push the prepared repository and branch to GitHub.
 2. Open [Streamlit Community Cloud](https://share.streamlit.io) and select
    **Create app**.

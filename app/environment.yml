@@ -1,0 +1,30 @@
+name: genome-firewall-cloud
+channels:
+  - conda-forge
+  - bioconda
+  # Prevent the Cloud solver from searching the implicit defaults channel.
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  # Pinned to the versions recorded in final_models/manifest.json for pickle safety.
+  - scikit-learn=1.9.0
+  - xgboost=3.2.0
+  - joblib
+  - scipy
+  - pyarrow          # parquet
+  - matplotlib
+  - pyyaml
+  - requests
+  - biopython
+  - streamlit=1.59.1
+  # Mash is training/de-duplication-only and is not needed for upload inference.
+  # Runtime inference must use the same software/database recorded in feature_spec.json.
+  - ncbi-amrfinderplus=4.2.7
+  - pip:
+      - supabase==2.31.0 # email/password authentication only in the deployed app
+      - python-dotenv    # load SUPABASE_* from .env
+      - pypdf            # extract patient name / MRN from an uploaded PDF (app/)
+      - openai>=1.0      # optional summary; inactive unless OPENAI_API_KEY is set
