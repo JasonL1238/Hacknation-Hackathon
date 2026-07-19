@@ -314,16 +314,16 @@ st.markdown(
 )
 
 # ─── Mandatory safety banner (cannot be dismissed) ───────────────────────────
-st.markdown(
-    '<div class="gf-banner">'
-    f'<span class="gf-banner-ico">{icon("alert-triangle", 20)}</span>'
-    '<div><b>Research prototype — confirm every result with standard laboratory testing.</b> '
-    'Decision support only; a trained professional makes the decision. '
-    'This tool predicts and explains resistance that <em>already exists</em> in a genome — '
-    'it never designs, modifies, or optimises any organism.</div>'
-    '</div>',
-    unsafe_allow_html=True,
-)
+#st.markdown(
+    #'<div class="gf-banner">'
+    #f'<span class="gf-banner-ico">{icon("alert-triangle", 20)}</span>'
+    #'<div><b>Research prototype — confirm every result with standard laboratory testing.</b> '
+    #'Decision support only; a trained professional makes the decision. '
+    #'This tool predicts and explains resistance that <em>already exists</em> in a genome — '
+    #'it never designs, modifies, or optimises any organism.</div>'
+    #'</div>',
+    #unsafe_allow_html=True,
+#)
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
