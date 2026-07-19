@@ -1,0 +1,27 @@
+# Secrets — never commit real credentials
+.env
+.env.local
+*.env
+
+# Large data (per CLAUDE.md: commit manifests/checksums, not genomes)
+data/raw/
+data/interim/
+data/processed/models/
+reports/*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Env managers
+.venv/
+venv/
+
+# Local AI tooling (machine-local settings + third-party skill assets)
+.claude/
+
+# OS
+.DS_Store

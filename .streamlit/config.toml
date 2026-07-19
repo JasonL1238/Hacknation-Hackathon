@@ -1,0 +1,14 @@
+# BioShield AI — Streamlit theme
+# Clean, clinical, professional. Brand accent is BLUE, kept deliberately
+# distinct from the green "likely to work" verdict so the two never blur.
+
+[theme]
+base = "light"
+primaryColor = "#256abf"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f6f9"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[server]
+headless = true

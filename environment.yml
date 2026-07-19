@@ -22,3 +22,6 @@ dependencies:
       - torch            # MPS on Apple Silicon; for the ESM-2 DL stretch
       - fair-esm         # ESM-2 protein embeddings
       - openai           # optional, flag-gated clinician-summary layer
+      - supabase>=2.4    # auth + PostgreSQL + storage backend (app/)
+      - python-dotenv    # load SUPABASE_* from .env
+      - pypdf            # extract patient name / MRN from an uploaded PDF (app/)
