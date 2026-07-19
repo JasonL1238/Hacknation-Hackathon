@@ -151,9 +151,11 @@ p, li, label, .stMarkdown { color: var(--gf-ink-2); font-size: 1.02rem; }
 /* ── Custom components ─────────────────────────────────────────────── */
 
 .gf-ico { stroke-width: 2; }
-
 .gf-hero {
-  display: flex; align-items: center; gap: 18px; margin: 4px 0 8px;
+  display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px;
+}
+.gf-hero-row {
+  display: flex; align-items: center; gap: 18px;
 }
 .gf-hero-mark {
   width: 56px; height: 56px; border-radius: 16px; flex: none;
@@ -161,11 +163,7 @@ p, li, label, .stMarkdown { color: var(--gf-ink-2); font-size: 1.02rem; }
   background: var(--gf-grad); box-shadow: var(--gf-glow); border: none;
 }
 .gf-hero h1 { margin: 0; line-height: 1.04; }
-.gf-hero-sub { color: var(--gf-ink-2); font-size: 1.06rem; margin-top: 4px; }
-.gf-wordmark {
-  background: var(--gf-grad-text); -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
+.gf-hero-sub { color: var(--gf-ink-2); font-size: 1.06rem; margin-top: 0; }
 .gf-pill {
   display: inline-flex; align-items: center; font-size: .66rem; font-weight: 800; letter-spacing: .09em;
   text-transform: uppercase; color: #fff; background: var(--gf-grad);
@@ -239,12 +237,11 @@ p, li, label, .stMarkdown { color: var(--gf-ink-2); font-size: 1.02rem; }
 .gf-target { font-weight: 600; font-size: .9rem; }
 .gf-reasons { margin: 12px 0 0; padding-left: 18px; color: var(--gf-ink-2); font-size: .85rem; }
 .gf-reasons li { margin: 3px 0; }
-
 /* Login page */
 .gf-login { text-align: center; margin: 6px 0 2px; display: flex; flex-direction: column; align-items: center; }
-.gf-login-mark { margin: 0 auto 16px; width: 60px; height: 60px; border-radius: 17px; }
+.gf-login-row { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
+.gf-login-mark { margin: 0; width: 56px; height: 56px; border-radius: 16px; }
 .gf-login-title { font-size: 2.15rem; margin: 0; font-weight: 800; letter-spacing: -0.02em; }
-.gf-login .gf-pill { margin-top: 10px; }
 .gf-login-sub { margin: 12px auto 0; max-width: 360px; }
 .gf-login-hint { text-align: center; font-size: .82rem; color: var(--gf-muted); margin: 10px 4px 2px; line-height: 1.4; }
 .gf-or { display: flex; align-items: center; text-align: center; color: var(--gf-muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; margin: 20px 0 8px; }
@@ -308,8 +305,7 @@ st.markdown(
     '<div class="gf-hero">'
     f'<div class="gf-hero-mark">{icon("shield-check", 26)}</div>'
     '<div>'
-    '<h1><span class="gf-wordmark">BioShield AI</span> '
-    '<span class="gf-pill">Defensive prototype</span></h1>'
+    '<h1><span class="gf-wordmark">BioShield AI</span></h1>'
     '<div class="gf-hero-sub">Calibrated antibiotic-resistance prediction for '
     '<em>Staphylococcus aureus</em> — per-drug verdict, confidence, and honest evidence.</div>'
     '</div>'

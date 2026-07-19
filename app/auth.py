@@ -204,12 +204,13 @@ def render_login_page() -> None:
 
     with mid:
         st.markdown(
-            '<div class="gf-login">'
-            f'<div class="gf-hero-mark gf-login-mark">{icon("shield-check", 28)}</div>'
-            '<h1 class="gf-login-title gf-wordmark">BioShield AI</h1>'
-            '<div class="gf-pill">Defensive prototype</div>'
-            '<div class="gf-hero-sub gf-login-sub">Calibrated antibiotic-resistance '
-            'prediction for <em>Staphylococcus aureus</em>.</div>'
+            '<div class="gf-hero">'
+            '<div class="gf-hero-row">'
+            f'<div class="gf-hero-mark">{icon("shield-check", 26)}</div>'
+            '<h1><span class="gf-wordmark">BioShield AI</span></h1>'
+            '</div>'
+            '<div class="gf-hero-sub">Calibrated antibiotic-resistance prediction for '
+            '<em>Staphylococcus aureus</em> — per-drug verdict, confidence, and honest evidence.</div>'
             '</div>',
             unsafe_allow_html=True,
         )
