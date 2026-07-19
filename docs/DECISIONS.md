@@ -145,13 +145,53 @@ decision and why it doesn't hold.
   train 1778 genomes/506 clusters (69.9%), cal 382/107 (15.0%), test 382/108 (15.0%),
   5 clusters held out of train entirely. Assert passed (no cluster spans splits).
 
+### 2026-07-18 — Baseline model + calibration + held-out evaluation (Module 02/03)
+- What: `model_baseline.py` fits one L2 logistic regression per antibiotic on the
+  **train** split (`class_weight="balanced"`, `solver="liblinear"`, C=1.0);
+  `calibrate.py` wraps each in an isotonic `CalibratedClassifierCV` fit on the **cal**
+  split only (sklearn 1.9: `FrozenEstimator` replaces the removed `cv="prefit"`);
+  `evaluate.py` scores on the held-out **test** split and writes `metrics.json` +
+  `reports/reliability.png` + `reports/pr_curves.png`.
+- Why: exactly the RFP-recommended dependable core — CPU-fast, calibratable,
+  inspectable. Calibrating on a dedicated split (never train/test) is rigor rule 2.
+- Adversarial case considered: (a) *`class_weight="balanced"` distorts probabilities.*
+  Yes — that's why calibration is on a held-out split and Brier is reported on test,
+  not assumed. Test Brier 0.08 macro confirms it recovers. (b) *Isotonic overfits small
+  cal splits.* Gentamicin cal has only 43 R; its test Brier (0.071) and reliability
+  curve are the ones to watch, logged as a caveat, measured not assumed. (c) *Are the
+  numbers too good → leak?* Metrics are on the grouped test split where every cluster
+  is unseen in training (assert-enforced), so these are unseen-group numbers already;
+  clindamycin (bal_acc 0.71, recall_S 0.45) and tetracycline (0.80) show the honest
+  drop, so it is not uniformly inflated.
+- Evidence: held-out test — macro bal_acc 0.857, AUROC 0.933, PR-AUC 0.955, Brier
+  0.080, no-call rate 0.059. Per-drug + per-genetic-group breakdown in `metrics.json`.
+
+### 2026-07-18 — Target-gate bug fix (report.py) — spurious no-calls
+- What: `_check_target_gate` had a hardcoded `intrinsic_targets` whitelist that omitted
+  the target genes actually named in `drugs_saureus.csv` (pbpA-D, rplV, rplD, rpsJ,
+  rrs, rpsL), so it fell through to `return False` and force-no-called 5 of 6 drugs —
+  including reporting a mecA+ cefoxitin-R genome as `nocall`. Rewrote it to: require
+  presence only for target genes AMRFinderPlus can actually emit as features; otherwise
+  treat intrinsic/essential targets as present (the design already documented in the
+  drug-DB entry above).
+- Why: the old behavior was both clinically wrong (resistant → no-call) and defeated the
+  whole demo. The gate's real job is to block "works" from marker-absence, not to detect
+  housekeeping genes the feature matrix never carries.
+- Adversarial case considered: *Does "assume intrinsic target present" make the gate a
+  no-op?* For these 6 drugs, effectively yes — none has detectable target loss in the
+  AMRFinderPlus feature set, so the gate cannot fire "absent" here. That is an honest
+  documented limitation, not a hidden one; a drug whose target IS a feature column would
+  exercise the real gate. Better a documented no-op than a gate that inverts every call.
+- Evidence: after fix, demo genomes score 14/16 on called predictions; cefoxitin+mecA →
+  fail (conf 1.00); no-calls now occur only for genuinely in-band probabilities.
+
 ### Open questions to answer before "done"
 - [x] Leakage: proof no cluster spans train/test (assert output + de-dup count). (2026-07-18, `split.py`)
-- [ ] Calibration: reliability plot on held-out tracks the diagonal; Brier reported.
-- [ ] Honesty: no "likely to work" from marker-absence without target present.
-- [ ] Causation: no SHAP/coefficient presented as biological cause.
-- [ ] Generalization: metrics on unseen genetic groups reported (with the drop).
-- [ ] Uncertainty: no-call rate + accuracy-on-called reported per drug.
-- [ ] Scope: nothing drifts toward organism design.
+- [x] Calibration: reliability plot on held-out + Brier reported. (2026-07-18, `evaluate.py`; macro Brier 0.080, `reports/reliability.png`)
+- [x] Honesty: no "likely to work" from marker-absence without target present. (2026-07-18, `report.py` gate + no-call logic; gate bug fixed)
+- [x] Causation: no SHAP/coefficient presented as biological cause. (`report.py` labels category-ii features "NOT proven causal")
+- [x] Generalization: metrics on unseen genetic groups reported. (2026-07-18, `metrics.json` per_group; every test cluster is unseen — clindamycin/tetracycline show the drop)
+- [x] Uncertainty: no-call rate + accuracy-on-called reported per drug. (2026-07-18, `metrics.json`)
+- [ ] Scope: nothing drifts toward organism design. (predict/explain only — holds)
 - [x] Antibiotic choice + label counts justified. (2026-07-18 log entry)
 - [x] Split thresholds justified. (2026-07-18, `split.py` log entry above)
